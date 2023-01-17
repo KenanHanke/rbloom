@@ -2,7 +2,7 @@
 
 Ultralightweight, blazing fast, minimalistic bloom filter library for Python, implemented in Rust
 
-# Usage
+## Usage
 
 This library defines only one class, the signature of which should be thought of as:
 
@@ -29,7 +29,7 @@ size, calculate `size_in_bits` by dividing the maximum number of expected items 
 maximum acceptable likelihood of a false positive
 (e.g. 200 items / 0.01 likelihood = 20000 bits).
 
-# Building
+## Building
 
 Use [maturin](https://github.com/PyO3/maturin) to build this library.
 As of the time of writing, this can be performed with:
@@ -41,7 +41,7 @@ $ maturin build --release
 
 This will result in the creation of a wheel, which can be found in `target/wheels`.
 
-# Examples
+## Examples
 
 Most primitive example:
 
