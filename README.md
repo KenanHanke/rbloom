@@ -1,6 +1,6 @@
 # rBloom
 
-Ultralightweight, blazing fast, minimalistic bloom filter library for Python, implemented in Rust
+Ultralightweight, blazing fast, minimalistic bloom filter library for Python, implemented in Rust.
 
 ## Usage
 
@@ -52,7 +52,7 @@ filter = Bloom(200)
 
 assert "hello" not in filter
 
-filter.add "hello"
+filter.add("hello")
 
 assert "hello" in filter
 ```
@@ -64,10 +64,10 @@ from rbloom import Bloom
 
 filter = Bloom(int(1000 / 0.001))
 
-for i in range(1000):
+for i in range(1, 1001):
     filter.add(i*i)
 
-for i in range(1000**2):
+for i in range(1, 1000**2 + 1):
     if i in filter:
         print(i, end=" ")
 ```
