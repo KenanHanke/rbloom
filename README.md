@@ -19,7 +19,7 @@ class Bloom:
         ...
 ```
 
-See [examples](#examples)
+See [examples](#examples).
 
 The size in bits is equal to the theoretical maximum amount of objects that could be
 contained in the filter. However, the filter should ideally be significantly larger
