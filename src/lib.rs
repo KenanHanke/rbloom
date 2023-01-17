@@ -39,7 +39,6 @@ fn hash(o: &PyAny) -> PyResult<i64> {
     hash.extract()
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn rbloom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Bloom>()?;
