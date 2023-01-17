@@ -1,5 +1,8 @@
 # rBloom
 
+[![PyPI](https://img.shields.io/pypi/v/rbloom?color=blue)](https://pypi.org/project/rbloom/)
+[![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/kenbyte/rbloom?color=blue)](https://github.com/kenbyte/rbloom)
+
 Ultralightweight, blazing fast, minimalistic bloom filter library for Python, implemented in Rust.
 
 ## Usage
