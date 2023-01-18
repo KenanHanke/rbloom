@@ -12,3 +12,8 @@ classifiers = [
 ]
 
 
+[project.urls]
+"Source Code" = "https://github.com/PyO3/maturin"
+
+[tool.maturin]
+sdist-include = ["LICENSE", "README.md"]
