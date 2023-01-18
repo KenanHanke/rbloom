@@ -13,7 +13,7 @@ classifiers = [
 
 
 [project.urls]
-"Source Code" = "https://github.com/PyO3/maturin"
+"Source Code" = "https://github.com/kenbyte/rbloom"
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
