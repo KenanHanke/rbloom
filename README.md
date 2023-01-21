@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/rbloom?color=blue)](https://pypi.org/project/rbloom/)
 [![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/kenbyte/rbloom?color=blue)](https://github.com/kenbyte/rbloom)
 
-Ultralightweight, blazing fast, minimalistic bloom filter library for Python, implemented in Rust.
+Ultralightweight, blazing fast, minimalistic Bloom filter library for Python, fully implemented in Rust.
 
 ## Usage
 
@@ -12,17 +12,14 @@ This library defines only one class, the signature of which should be thought of
 ```python
 class Bloom:
 
-    def __init__(self, size_in_bits):
-        ...
+    def __init__(self, size_in_bits)
 
-    def __contains__(self, object):
-        ...
+    def __contains__(self, object)
 
-    def add(self, object):
-        ...
+    def add(self, object)
 ```
 
-See [examples](#examples).
+See section [Examples](#examples).
 
 The size in bits is equal to the theoretical maximum amount of objects that could be
 contained in the filter. However, the filter should ideally be significantly larger
