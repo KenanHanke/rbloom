@@ -1,7 +1,8 @@
 use bitline::BitLine;
-use pyo3::prelude::*;
+use pyo3::{prelude::*, types::PyTuple};
 
 #[pyclass]
+#[derive(Clone)]
 struct Bloom {
     filter: BitLine,
     k: u64,
@@ -45,14 +46,37 @@ impl Bloom {
             filter: BitLine::new(size_in_bits as u64)?,
             k: k as u64,
             hash_func: match hash_func {
-                Some(hash_func) => Some(hash_func.to_object(hash_func.py())),
+                Some(hash_func) => {
+                    // if __builtins__.hash was passed, use None instead
+                    if get_builtin_hash_func(hash_func.py())?.is(hash_func) {
+                        None
+                    } else {
+                        Some(hash_func.to_object(hash_func.py()))
+                    }
+                }
                 None => None,
             },
         })
     }
 
+    #[getter]
     fn size_in_bits(&self) -> u64 {
         self.filter.len()
+    }
+
+    #[getter]
+    fn hash_func(&self) -> PyResult<PyObject> {
+        match self.hash_func.as_ref() {
+            Some(hash_func) => Ok(hash_func.clone()),
+            None => Python::with_gil(|py| get_builtin_hash_func(py)),
+        }
+    }
+
+    #[getter]
+    fn approx_items(&self) -> f64 {
+        ((self.filter.len() as f64) / (self.k as f64)
+            * (1.0 - (self.filter.sum() as f64) / (self.filter.len() as f64)).ln())
+        .abs()
     }
 
     fn add(&mut self, o: &PyAny) -> PyResult<()> {
@@ -71,6 +95,23 @@ impl Bloom {
             }
         }
         Ok(true)
+    }
+
+    #[pyo3(signature = "(*others)")]
+    fn update(&mut self, others: &PyTuple) -> PyResult<()> {
+        for other in others.iter() {
+            // If the other object is a Bloom, use the bitwise union
+            if other.is_instance_of::<Bloom>()? {
+                self.__ior__(&other.extract()?)?;
+            }
+            // Otherwise, iterate over the other object and add each item
+            else {
+                for obj in other.iter()? {
+                    self.add(obj?)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn __or__(&self, other: &Bloom) -> PyResult<Bloom> {
@@ -108,11 +149,7 @@ impl Bloom {
     }
 
     fn copy(&self) -> Bloom {
-        Bloom {
-            filter: self.filter.clone(),
-            k: self.k,
-            hash_func: self.hash_func.clone(),
-        }
+        self.clone()
     }
 }
 
@@ -158,6 +195,10 @@ mod bitline {
             for i in 0..self.bits.len() {
                 self.bits[i] = 0;
             }
+        }
+
+        pub fn sum(&self) -> u64 {
+            self.bits.iter().map(|x| x.count_ones() as u64).sum()
         }
     }
 
@@ -280,6 +321,11 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
             "Bloom filters must have the same hash function",
         )),
     }
+}
+
+fn get_builtin_hash_func(py: Python<'_>) -> PyResult<PyObject> {
+    let builtins = PyModule::import(py, "builtins")?;
+    Ok(builtins.getattr("hash")?.to_object(py))
 }
 
 #[pymodule]
