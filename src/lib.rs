@@ -57,7 +57,7 @@ impl Bloom {
 
     fn add(&mut self, o: &PyAny) -> PyResult<()> {
         let hash = hash(o, &self.hash_func)?;
-        for index in mlcg::generate_indexes(hash, self.k, self.filter.len()) {
+        for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
             self.filter.set(index);
         }
         Ok(())
@@ -65,7 +65,7 @@ impl Bloom {
 
     fn __contains__(&self, o: &PyAny) -> PyResult<bool> {
         let hash = hash(o, &self.hash_func)?;
-        for index in mlcg::generate_indexes(hash, self.k, self.filter.len()) {
+        for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
             if !self.filter.get(index) {
                 return Ok(false);
             }
@@ -210,9 +210,9 @@ mod bitline {
     }
 }
 
-/// This implements a multiplicative linear congruential generator that is
+/// This implements a linear congruential generator that is
 /// used to distribute entropy from the hash over multiple ints.
-mod mlcg {
+mod lcg {
     pub struct Random {
         state: u128,
     }
@@ -223,7 +223,8 @@ mod mlcg {
         fn next(&mut self) -> Option<Self::Item> {
             self.state = self
                 .state
-                .wrapping_mul(25096281518912105342191851917838718629);
+                .wrapping_mul(47026247687942121848144207491837418733)
+                .wrapping_add(1);
             Some((self.state >> 32) as Self::Item)
         }
     }
