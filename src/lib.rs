@@ -97,7 +97,7 @@ impl Bloom {
         Ok(true)
     }
 
-    #[pyo3(signature = "(*others)")]
+    #[args(others = "*")]
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
