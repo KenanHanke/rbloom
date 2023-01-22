@@ -5,7 +5,8 @@ use pyo3::{prelude::*, types::PyTuple};
 #[derive(Clone)]
 struct Bloom {
     filter: BitLine,
-    k: u64,
+    k: u64, // Number of hash functions (implemented via a LCG that uses
+    // the original hash as a seed)
     hash_func: Option<PyObject>,
 }
 
