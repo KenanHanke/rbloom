@@ -3,7 +3,9 @@
 [![PyPI](https://img.shields.io/pypi/v/rbloom?color=blue)](https://pypi.org/project/rbloom/)
 [![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/kenbyte/rbloom?color=blue)](https://github.com/kenbyte/rbloom)
 
-Ultralightweight, blazing fast, minimalistic Bloom filter library for Python, fully implemented in Rust.
+Ultralightweight, blazing fast, minimalistic
+[Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) library for
+Python, fully implemented in Rust.
 
 ## Usage
 
@@ -12,29 +14,29 @@ This library defines only one class, the signature of which should be thought of
 ```python
 class Bloom:
 
-    def __init__(self, size_in_bits)
+    __init__(self, expected_items: int, false_positive_rate: float,
+                 hash_func=__builtins__.hash)
 
-    def __contains__(self, object)
+    add(self, object)
 
-    def add(self, object)
+    __contains__(self, object) -> bool
+
+    clear(self)
+
 ```
 
-See section [Examples](#examples).
+Also see the section [Examples](#examples).
 
-The size in bits is equal to the theoretical maximum amount of objects that could be
-contained in the filter. However, the filter should ideally be significantly larger
-than this to reduce the likelihood of birthday collisions, which in practice result
-in a false positive `True` returned by the `__contains__` method. To decide on an ideal
-size, calculate `size_in_bits` by dividing the maximum number of expected items by the
-maximum acceptable likelihood of a false positive
-(e.g. 200 items / 0.01 likelihood = 20000 bits).
+To prevent death and destruction, the bitwise set operations only work on
+filters where all parameters are equal (including the hash functions being
+the exact same object).
 
 ## Building
 
 Use [maturin](https://github.com/PyO3/maturin) to build this library.
 As of the time of writing, this can be performed with:
 
-```sh
+```bash
 $ pip install maturin
 $ maturin build --release
 ```
@@ -48,7 +50,7 @@ Most primitive example:
 ```python
 from rbloom import Bloom
 
-filter = Bloom(200)
+filter = Bloom(200, 0.01)
 
 assert "hello" not in filter
 
@@ -62,7 +64,7 @@ Print the first 1000 squares as well as around 0.001 = 0.1% of the numbers in be
 ```python
 from rbloom import Bloom
 
-filter = Bloom(int(1000 / 0.001))
+filter = Bloom(1000, 0.001)
 
 for i in range(1, 1001):
     filter.add(i*i)
@@ -71,3 +73,23 @@ for i in range(1, 1000**2 + 1):
     if i in filter:
         print(i, end=" ")
 ```
+
+---
+
+When you throw away Python's built-in hash function and hash a serialized
+representation, however, you open up a breach to the scary realm of the
+unpythonic:
+
+- Numbers like `2`, `2.0` and `2 + 0j` will suddenly no longer be equal.
+- Instances of classes with custom hashing logic (e.g. to stop
+  caches inside instances from affecting their hashes) will suddenly
+  display undefined behavior.
+- Objects that can't be serialized simply won't be hashable at all.
+
+## Implementation details
+
+Instead of using multiple hash functions, this program redistributes the
+entropy of a single hash over multiple integers by using the single hash
+as the seed of a multiplicative linear congruential generator (MLCG). The
+constant used is one proposed by
+[(L'Ecuyer, 1999)](https://doi.org/10.1090/S0025-5718-99-00996-5).
