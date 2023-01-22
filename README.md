@@ -90,6 +90,6 @@ unpythonic:
 
 Instead of using multiple hash functions, this program redistributes the
 entropy of a single hash over multiple integers by using the single hash
-as the seed of a multiplicative linear congruential generator (MLCG). The
-constant used is one proposed by
+as the seed of a linear congruential generator (LCG). The constant used
+is one proposed by
 [(L'Ecuyer, 1999)](https://doi.org/10.1090/S0025-5718-99-00996-5).
