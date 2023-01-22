@@ -97,23 +97,6 @@ impl Bloom {
         Ok(true)
     }
 
-    #[args(others = "*")]
-    fn update(&mut self, others: &PyTuple) -> PyResult<()> {
-        for other in others.iter() {
-            // If the other object is a Bloom, use the bitwise union
-            if other.is_instance_of::<Bloom>()? {
-                self.__ior__(&other.extract()?)?;
-            }
-            // Otherwise, iterate over the other object and add each item
-            else {
-                for obj in other.iter()? {
-                    self.add(obj?)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn __or__(&self, other: &Bloom) -> PyResult<Bloom> {
         check_compatible(self, other)?;
         Ok(Bloom {
@@ -141,6 +124,43 @@ impl Bloom {
     fn __iand__(&mut self, other: &Bloom) -> PyResult<()> {
         check_compatible(self, other)?;
         self.filter &= other.filter.clone();
+        Ok(())
+    }
+
+    #[args(others = "*")]
+    fn update(&mut self, others: &PyTuple) -> PyResult<()> {
+        for other in others.iter() {
+            // If the other object is a Bloom, use the bitwise union
+            if other.is_instance_of::<Bloom>()? {
+                self.__ior__(&other.extract()?)?;
+            }
+            // Otherwise, iterate over the other object and add each item
+            else {
+                for obj in other.iter()? {
+                    self.add(obj?)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[args(others = "*")]
+    fn intersection_update(&mut self, others: &PyTuple) -> PyResult<()> {
+        for other in others.iter() {
+            // If the other object is a Bloom, use the bitwise union
+            if other.is_instance_of::<Bloom>()? {
+                self.__iand__(&other.extract()?)?;
+            }
+            // Otherwise, iterate over the other object and add each item
+            else {
+                let mut temp = self.clone();
+                temp.clear();
+                for obj in other.iter()? {
+                    temp.add(obj?)?;
+                }
+                self.__iand__(&temp)?;
+            }
+        }
         Ok(())
     }
 
