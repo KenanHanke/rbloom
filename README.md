@@ -1,84 +1,204 @@
 # rBloom
 
 [![PyPI](https://img.shields.io/pypi/v/rbloom?color=blue)](https://pypi.org/project/rbloom/)
-[![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/kenbyte/rbloom?color=blue)](https://github.com/kenbyte/rbloom)
+![last commit](https://img.shields.io/github/last-commit/kenbyte/rbloom)
+![license](https://img.shields.io/github/license/kenbyte/rbloom)
 
-Ultralightweight, blazing fast, minimalistic
+A fast, simple and lightweight
 [Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) library for
-Python, fully implemented in Rust.
+Python, fully implemented in Rust. It's designed to be as pythonic as
+possible, mimicking the built-in `set` type where it can. While it's a new
+kid on the block (this project was started in 2023), it's also currenly the
+fastest kid on the block (see section [Benchmarks](#benchmarks)).
 
-## Usage
+## Quickstart
 
-This library defines only one class, the signature of which should be thought of as:
+This library defines only one class, which can be used as follows:
+
+```python
+>>> from rbloom import Bloom
+>>> bf = Bloom(200, 0.01)  # 200 items max, false positive rate of 1%
+>>> bf.add("hello")
+>>> "hello" in bf
+True
+>>> "world" in bf
+False
+>>> bf.update(["hello", "world"])  # "hello" and "world" now in bf
+>>> other_bf = Bloom(200, 0.01)
+
+### add some items to other_bf
+
+>>> third_bf = bf | other_bf  # third_bf now contains all items in
+                              # bf and other_bf
+>>> third_bf = bf.copy()
+... third_bf.update(other_bf)  # same as above
+```
+
+Unlike BF's in real life, you can have as many of these as you want,
+and they all work well together!
+
+For the full API, see the section [Documentation](#documentation).
+
+## Installation
+
+```sh
+pip install rbloom
+```
+
+Or build it yourself by cloning this repository and running
+[maturin](https://github.com/PyO3/maturin):
+
+```sh
+maturin build --release
+pip install target/wheels/rbloom-*.whl
+```
+
+## Why rBloom?
+
+Why should you use this library instead of one of the other
+Bloom filter libraries on PyPI?
+
+- **Simple:** Almost all important methods work exactly like their
+  counterparts in the
+  [built-in `set` type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
+- **Fast:** This library is implemented in Rust, which means it's
+  blazingly fast. See section [Benchmarks](#benchmarks) for more
+  information.
+- **Lightweight:** This library has no dependencies of its own.
+- **Maintainable:** This entire library fits comfortably in
+  less than 400 lines of code, and it's written in idiomatic Rust, which
+  is very readable and expressive for a low-level systems language. Even
+  if I were to stop maintaining this library (which I don't intend to), it
+  would be trivially easy for you to fork it and keep it working for you.
+
+I started this library because I was looking for a simple Bloom filter
+dependency for a project, but the pure Python implementations were too
+slow. The only maintained fast alternative I could find,
+`pybloomfiltermmap3` (which is written in C and is a great
+library), failed to install on recent versions of Python (see below),
+so I felt very uncomfortable using it as a dependency. I also felt like
+the thousands of lines of code in that library were a bit much and hard to
+handle should it stop being maintained (which is what happened to the
+original `pybloomfiltermmap`). However, please note that
+`pybloomfiltermmap3` implements persistent filters, while this library
+currently does not, so if that's something you require, you should
+definitely give that library a try.
+
+## Benchmarks
+
+I implemented the following simple benchmark in the respective API of
+each library:
+
+```python
+bf = Bloom(10_000_000, 0.01)
+
+for i in range(10_000_000):
+    bf.add(i + 0.5)  # floats because ints are hashed as themselves
+
+for i in range(10_000_000):
+    assert i + 0.5 in bf
+```
+
+This resulted in the following runtimes:
+
+| Library                                                            | Time     | Notes                                 |
+| ------------------------------------------------------------------ | -------- | ------------------------------------- |
+| [rBloom](https://pypi.org/project/rbloom/)                         | 5.956s   | works out-of-the-box                  |
+| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11,280s  | surprisingly hard to get working [1]  |
+| [pybloom3](https://pypi.org/project/pybloom3/)                     | 75.871s  | works out-of-the-box                  |
+| [Flor](https://pypi.org/project/Flor/)                             | 128.837s | doesn't work on arbitrary objects [2] |
+| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 325.044s | doesn't work on arbitrary objects [2] |
+
+[1] It refused to install on Python 3.11 and kept segfaulting on 3.10, so I
+installed 3.7 on my machine for this benchmark.  
+[2] I tested both converting to bytes and pickling, and chose the faster time.
+
+The benchmark was run on a 2019 Dell XPS 15 7590 with an Intel Core
+i5-9300H. It was run 5 times for each library, and the average time was
+taken.
+
+## Documentation
+
+This library defines only one class, the signature of which should be
+thought of as:
 
 ```python
 class Bloom:
 
-    __init__(self, expected_items: int, false_positive_rate: float,
+    # expected_items: max number of items to be added to the filter
+    # false_positive_rate: max false positive rate of the filter
+    # hash_func: optional argument, see section "Cryptographic security"
+    def __init__(self, expected_items: int, false_positive_rate: float,
                  hash_func=__builtins__.hash)
 
-    add(self, object)
+    @property
+    def size_in_bits(self) -> int  # number of buckets in the filter
 
-    __contains__(self, object) -> bool
+    @property
+    def hash_func(self) -> Callable[[Any], int]  # retrieve the hash_func
+                                                 # given to __init__
 
-    clear(self)
+    @property
+    def approx_items(self) -> float  # estimated number of items in
+                                     # the filter
+
+    #                all subsequent methods are
+    # -------- equivalent to the corresponding methods ---------
+    #                 of the built-in set type
+
+    def add(self, object)
+
+    def __contains__(self, object) -> bool    # object in self
+
+    def __or__(self, other: Bloom) -> Bloom   # self | other
+
+    def __ior__(self, other: Bloom)           # self |= other
+
+    def __and__(self, other: Bloom) -> Bloom  # self & other
+
+    def __iand__(self, other: Bloom)          # self &= other
+
+    def update(self, *others: Union[Iterable, Bloom])
+
+    def intersection_update(self, *others: Union[Iterable, Bloom])
+
+    def clear(self)                           # remove all items
+
+    def copy(self) -> Bloom
 
 ```
-
-Also see the section [Examples](#examples).
 
 To prevent death and destruction, the bitwise set operations only work on
 filters where all parameters are equal (including the hash functions being
-the exact same object).
+the exact same object). Because this is a Bloom filter, the `__contains__`
+and `__approx_items` methods are probabilistic.
 
-## Building
+## Cryptographic security
 
-Use [maturin](https://github.com/PyO3/maturin) to build this library.
-As of the time of writing, this can be performed with:
-
-```bash
-$ pip install maturin
-$ maturin build --release
-```
-
-This will result in the creation of a wheel, which can be found in `target/wheels`.
-
-## Examples
-
-Most primitive example:
+Python's built-in hash function isn't maximally collision-resistant, so if
+your program depends on the false positive rate being perfectly correct,
+you may want to supply your own hash function. This is especially the case
+when working with very large filters (more than a few tens of millions
+of items) or when false positives are very costly and could be exploited
+by an adversary. Just make sure that your hash function returns an integer
+between -2^127 and 2^127 - 1. Feel free to use the following example in
+your own code:
 
 ```python
 from rbloom import Bloom
+from hashlib import sha256
+from pickle import dumps
 
-filter = Bloom(200, 0.01)
+def hash_func(obj):
+    h = sha256(dumps(obj)).digest()
+    return int.from_bytes(h[:16], "big") - 2**127
 
-assert "hello" not in filter
-
-filter.add("hello")
-
-assert "hello" in filter
+bf = Bloom(100_000_000, 0.01, hash_func=hash_func)
 ```
 
-Print the first 1000 squares as well as around 0.001 = 0.1% of the numbers in between:
-
-```python
-from rbloom import Bloom
-
-filter = Bloom(1000, 0.001)
-
-for i in range(1, 1001):
-    filter.add(i*i)
-
-for i in range(1, 1000**2 + 1):
-    if i in filter:
-        print(i, end=" ")
-```
-
----
-
-When you throw away Python's built-in hash function and hash a serialized
-representation, however, you open up a breach to the scary realm of the
-unpythonic:
+When you throw away Python's built-in hash function and start hashing
+serialized representations of objects, however, you open up a breach into
+the scary realm of the unpythonic:
 
 - Numbers like `2`, `2.0` and `2 + 0j` will suddenly no longer be equal.
 - Instances of classes with custom hashing logic (e.g. to stop
@@ -86,10 +206,15 @@ unpythonic:
   display undefined behavior.
 - Objects that can't be serialized simply won't be hashable at all.
 
-## Implementation details
+Making you supply your own hash function in this case is a deliberate
+design decision, because it shows you what you're doing and prevents
+you from shooting yourself in the foot.
 
-Instead of using multiple hash functions, this program redistributes the
-entropy of a single hash over multiple integers by using the single hash
-as the seed of a linear congruential generator (LCG). The constant used
-is one proposed by
+---
+
+This implementation of a Bloom filter doesn't use multiple hash
+functions, but instead works by redistributing the entropy of a single
+hash over multiple integers by using the single hash as the seed of a
+simple linear congruential generator (LCG). The constant used is for this
+LCG is one proposed by
 [(L'Ecuyer, 1999)](https://doi.org/10.1090/S0025-5718-99-00996-5).
