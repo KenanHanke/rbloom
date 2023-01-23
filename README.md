@@ -52,7 +52,7 @@ pip install rbloom
 If you're on an uncommon platform, this may cause pip to build the library
 from source, which requires the Rust
 [toolchain](https://www.rust-lang.org/tools/install). You can also build
-rBloom by cloning this repository and running
+`rbloom` by cloning this repository and running
 [maturin](https://github.com/PyO3/maturin):
 
 ```sh
@@ -70,26 +70,25 @@ Bloom filter libraries on PyPI?
 - **Simple:** Almost all important methods work exactly like their
   counterparts in the built-in
   [`set` type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
-- **Fast:** This library is implemented in Rust, which means it's
+- **Fast:** `rbloom` is implemented in Rust, which makes it
   blazingly fast. See section [Benchmarks](#benchmarks) for more
   information.
-- **Lightweight:** This library has no dependencies of its own.
-- **Maintainable:** This entire library fits comfortably in
-  less than 400 lines of code, and it's written in idiomatic Rust, which
-  is very readable and expressive for a low-level systems language. Even
-  if I were to stop maintaining this library (which I don't intend to), it
+- **Lightweight:** `rbloom` has no dependencies of its own.
+- **Maintainable:** The entire library fits comfortably in
+  less than 400 lines of code, and it's written in idiomatic Rust. Even
+  if I were to stop maintaining `rbloom` (which I don't intend to), it
   would be trivially easy for you to fork it and keep it working for you.
 
-I started this library because I was looking for a simple Bloom filter
+I started `rbloom` because I was looking for a simple Bloom filter
 dependency for a project, but the pure Python implementations were too
 slow. The only maintained fast alternative I could find,
 `pybloomfiltermmap3` (which is written in C and is a great
 library), failed to work on recent versions of Python (see below),
 so I felt very uncomfortable using it as a dependency. I also felt like
-the thousands of lines of code in that library were a bit much and hard to
-handle, should it stop being maintained (which is what happened to the
+the thousands of lines of code in that library were a bit hard to
+handle should it stop being maintained (which is what happened to the
 original `pybloomfiltermmap`). However, please note that
-`pybloomfiltermmap3` implements persistent filters, while this library
+`pybloomfiltermmap3` implements persistent filters, while `rbloom`
 currently does not, so if that's something you require, you should
 definitely give that library a try.
 
@@ -125,6 +124,11 @@ installed 3.7 on my machine for this benchmark.
 The benchmark was run on a 2019 Dell XPS 15 7590 with an Intel Core
 i5-9300H. It was run 5 times for each library, and the average time was
 used.
+
+Also note that `rbloom` is compiled against a stable ABI for
+portability, and that you can get a small but measurable speedup by
+removing the `"abi3-py37"` flag from `Cargo.toml` and building
+it yourself.
 
 ## Documentation
 
