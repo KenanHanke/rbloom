@@ -79,7 +79,7 @@ slow. The only maintained fast alternative I could find,
 library), failed to work on recent versions of Python (see below),
 so I felt very uncomfortable using it as a dependency. I also felt like
 the thousands of lines of code in that library were a bit much and hard to
-handle should it stop being maintained (which is what happened to the
+handle, should it stop being maintained (which is what happened to the
 original `pybloomfiltermmap`). However, please note that
 `pybloomfiltermmap3` implements persistent filters, while this library
 currently does not, so if that's something you require, you should
