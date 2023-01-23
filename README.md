@@ -1,7 +1,6 @@
 # rBloom
 
 [![PyPI](https://img.shields.io/pypi/v/rbloom)](https://pypi.org/project/rbloom/)
-![last commit](https://img.shields.io/github/last-commit/kenbyte/rbloom)
 ![build](https://img.shields.io/github/actions/workflow/status/kenbyte/rbloom/CI.yml)
 ![license](https://img.shields.io/github/license/kenbyte/rbloom)
 
