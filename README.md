@@ -172,7 +172,7 @@ class Bloom:
 To prevent death and destruction, the bitwise set operations only work on
 filters where all parameters are equal (including the hash functions being
 the exact same object). Because this is a Bloom filter, the `__contains__`
-and `__approx_items` methods are probabilistic.
+and `__approx_items__` methods are probabilistic.
 
 ## Cryptographic security
 
