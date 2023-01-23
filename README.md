@@ -64,8 +64,8 @@ Why should you use this library instead of one of the other
 Bloom filter libraries on PyPI?
 
 - **Simple:** Almost all important methods work exactly like their
-  counterparts in the
-  [built-in `set` type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
+  counterparts in the built-in
+  [`set` type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
 - **Fast:** This library is implemented in Rust, which means it's
   blazingly fast. See section [Benchmarks](#benchmarks) for more
   information.
@@ -220,6 +220,7 @@ you from shooting yourself in the foot.
 This implementation of a Bloom filter doesn't use multiple hash
 functions, but instead works by redistributing the entropy of a single
 hash over multiple integers by using the single hash as the seed of a
-simple linear congruential generator (LCG). The constant used is for this
-LCG is one proposed by
+simple linear congruential generator (LCG). Those integers are then used
+as indexes for the bit array that makes up the filter. The constant used
+for the LCG is one proposed by
 [(L'Ecuyer, 1999)](https://doi.org/10.1090/S0025-5718-99-00996-5).
