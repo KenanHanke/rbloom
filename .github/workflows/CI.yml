@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, i686, aarch64]
+        target: [x86_64, i686, aarch64, armv7, s390x, ppc64le, ppc64]
     steps:
       - uses: actions/checkout@v3
       - name: Build wheels
@@ -31,11 +31,20 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x64, x86]
     steps:
       - uses: actions/checkout@v3
-      - uses: PyO3/maturin-action@v1
+      - uses: actions/setup-python@v4
         with:
-          command: build
+          python-version: 3.9
+          architecture: ${{ matrix.target }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
           args: --release -o dist --find-interpreter
       - name: Upload wheels
         uses: actions/upload-artifact@v3
