@@ -76,7 +76,7 @@ I started this library because I was looking for a simple Bloom filter
 dependency for a project, but the pure Python implementations were too
 slow. The only maintained fast alternative I could find,
 `pybloomfiltermmap3` (which is written in C and is a great
-library), failed to install on recent versions of Python (see below),
+library), failed to work on recent versions of Python (see below),
 so I felt very uncomfortable using it as a dependency. I also felt like
 the thousands of lines of code in that library were a bit much and hard to
 handle should it stop being maintained (which is what happened to the
