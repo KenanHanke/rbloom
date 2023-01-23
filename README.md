@@ -8,9 +8,10 @@ A fast, simple and lightweight
 [Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) library for
 Python, fully implemented in Rust. It's designed to be as pythonic as
 possible, mimicking the built-in `set` type where it can. While it's a new
-kid on the block (this project was started in 2023), it's also currently the
-fastest kid on the block by a long shot (see section
-[Benchmarks](#benchmarks)).
+kid on the block (this project was started in 2023), it's also currently
+the fastest kid on the block by a long shot (see section
+[Benchmarks](#benchmarks)). Releases are published on
+[PyPI](https://pypi.org/project/rbloom/).
 
 ## Quickstart
 
@@ -42,21 +43,24 @@ For the full API, see the section [Documentation](#documentation).
 
 ## Installation
 
+On almost all platforms, simply run:
+
 ```sh
 pip install rbloom
 ```
 
-Or build it yourself by cloning this repository and running
+If you're on an uncommon platform, this may cause pip to build the library
+from source, which requires the Rust
+[toolchain](https://www.rust-lang.org/tools/install). You can also build
+rBloom by cloning this repository and running
 [maturin](https://github.com/PyO3/maturin):
 
 ```sh
 maturin build --release
-pip install target/wheels/rbloom-*.whl
 ```
 
-Note that you'll need to have
-[Rust](https://www.rust-lang.org/tools/install) installed in order
-to run maturin successfully.
+This will create a wheel in the `target/wheels/` directory, which can
+subsequently also be passed to pip.
 
 ## Why rBloom?
 
@@ -120,7 +124,7 @@ installed 3.7 on my machine for this benchmark.
 
 The benchmark was run on a 2019 Dell XPS 15 7590 with an Intel Core
 i5-9300H. It was run 5 times for each library, and the average time was
-taken.
+used.
 
 ## Documentation
 
