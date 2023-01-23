@@ -104,7 +104,7 @@ This resulted in the following runtimes:
 | Library                                                            | Time     | Notes                                 |
 | ------------------------------------------------------------------ | -------- | ------------------------------------- |
 | [rBloom](https://pypi.org/project/rbloom/)                         | 5.956s   | works out-of-the-box                  |
-| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11,280s  | surprisingly hard to get working [1]  |
+| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11.280s  | surprisingly hard to get working [1]  |
 | [pybloom3](https://pypi.org/project/pybloom3/)                     | 75.871s  | works out-of-the-box                  |
 | [Flor](https://pypi.org/project/Flor/)                             | 128.837s | doesn't work on arbitrary objects [2] |
 | [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 325.044s | doesn't work on arbitrary objects [2] |
