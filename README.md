@@ -54,6 +54,10 @@ maturin build --release
 pip install target/wheels/rbloom-*.whl
 ```
 
+Note that you'll need to have
+[Rust](https://www.rust-lang.org/tools/install) installed in order
+to run maturin successfully.
+
 ## Why rBloom?
 
 Why should you use this library instead of one of the other
