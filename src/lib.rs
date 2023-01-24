@@ -317,7 +317,7 @@ fn hash(o: &PyAny, hash_func: &Option<PyObject>) -> PyResult<i128> {
 fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     if a.k != b.k || a.filter.len() != b.filter.len() {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "size or max false positive rate must be the same",
+            "size and max false positive rate must be the same for both filters",
         ));
     }
 
