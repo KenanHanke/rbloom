@@ -220,7 +220,7 @@ the scary realm of the unpythonic:
 - Objects that can't be serialized simply won't be hashable at all.
 
 Making you supply your own hash function in this case is a deliberate
-design decision, because it shows you what you're doing and prevents
+design decision intended to show you what you're doing and prevent
 you from shooting yourself in the foot.
 
 ---
