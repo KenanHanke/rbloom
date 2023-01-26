@@ -188,14 +188,14 @@ and `approx_items` methods are probabilistic.
 
 ## Cryptographic security
 
-Python's built-in hash function isn't maximally collision-resistant, so if
-your program depends on the false positive rate being perfectly correct,
-you may want to supply your own hash function. This is especially the case
-when working with very large filters (more than a few tens of millions
-of items) or when false positives are very costly and could be exploited
-by an adversary. Just make sure that your hash function returns an integer
-between -2^127 and 2^127 - 1. Feel free to use the following example in
-your own code:
+Python's built-in hash function is designed to be fast, not maximally
+collision-resistant, so if your program depends on the false positive rate
+being perfectly correct, you may want to supply your own hash function.
+This is especially the case when working with very large filters (more
+than a few tens of millions of items) or when false positives are very
+costly and could be exploited by an adversary. Just make sure that your
+hash function returns an integer between -2^127 and 2^127 - 1. Feel free
+to use the following example in your own code:
 
 ```python
 from rbloom import Bloom
