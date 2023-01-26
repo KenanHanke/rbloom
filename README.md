@@ -75,7 +75,7 @@ Bloom filter libraries on PyPI?
   information.
 - **Lightweight:** `rbloom` has no dependencies of its own.
 - **Maintainable:** The entire library fits comfortably in
-  less than 400 lines of code, and it's written in idiomatic Rust. Even
+  a few hundred lines of code, and it's written in idiomatic Rust. Even
   if I were to stop maintaining `rbloom` (which I don't intend to), it
   would be trivially easy for you to fork it and keep it working for you.
 
