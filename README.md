@@ -68,8 +68,8 @@ Why should you use this library instead of one of the other
 Bloom filter libraries on PyPI?
 
 - **Simple:** Almost all important methods work exactly like their
-  counterparts in the built-in
-  [`set` type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
+  counterparts in the built-in `set`
+  [type](https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset).
 - **Fast:** `rbloom` is implemented in Rust, which makes it
   blazingly fast. See section [Benchmarks](#benchmarks) for more
   information.
