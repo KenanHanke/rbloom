@@ -42,21 +42,18 @@ impl Bloom {
             -1.0 * (expected_items as f64) * false_positive_rate.ln() / 2.0f64.ln().powi(2);
         let k = (size_in_bits / expected_items as f64) * 2.0f64.ln();
 
+        let hash_func = match hash_func {
+            // if __builtins__.hash was passed, use None instead
+            Some(hash_func) if !hash_func.is(get_builtin_hash_func(hash_func.py())?) => {
+                Some(hash_func.to_object(hash_func.py()))
+            }
+            _ => None,
+        };
         // Create the filter
         Ok(Bloom {
             filter: BitLine::new(size_in_bits as u64)?,
             k: k as u64,
-            hash_func: match hash_func {
-                Some(hash_func) => {
-                    // if __builtins__.hash was passed, use None instead
-                    if get_builtin_hash_func(hash_func.py())?.is(hash_func) {
-                        None
-                    } else {
-                        Some(hash_func.to_object(hash_func.py()))
-                    }
-                }
-                None => None,
-            },
+            hash_func,
         })
     }
 
@@ -66,20 +63,21 @@ impl Bloom {
     }
 
     #[getter]
-    fn hash_func(&self) -> PyResult<PyObject> {
+    fn hash_func<'a>(&'a self, py: Python<'a>) -> PyResult<&'a PyAny> {
         match self.hash_func.as_ref() {
-            Some(hash_func) => Ok(hash_func.clone()),
-            None => Python::with_gil(|py| get_builtin_hash_func(py)),
+            Some(hash_func) => Ok(hash_func.as_ref(py)),
+            None => get_builtin_hash_func(py),
         }
     }
 
     #[getter]
     fn approx_items(&self) -> f64 {
-        ((self.filter.len() as f64) / (self.k as f64)
-            * (1.0 - (self.filter.sum() as f64) / (self.filter.len() as f64)).ln())
-        .abs()
+        let len = self.filter.len() as f64;
+        let bits_set = self.filter.sum() as f64;
+        (len / (self.k as f64) * (1.0 - (bits_set) / len).ln()).abs()
     }
 
+    #[pyo3(signature = (o, /))]
     fn add(&mut self, o: &PyAny) -> PyResult<()> {
         let hash = hash(o, &self.hash_func)?;
         for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
@@ -98,37 +96,37 @@ impl Bloom {
         Ok(true)
     }
 
-    fn __or__(&self, other: &Bloom) -> PyResult<Bloom> {
+    fn __or__(&self, py: Python<'_>, other: &Bloom) -> PyResult<Bloom> {
         check_compatible(self, other)?;
         Ok(Bloom {
-            filter: self.filter.clone() | other.filter.clone(),
+            filter: &self.filter | &other.filter,
             k: self.k,
-            hash_func: self.hash_func.clone(),
+            hash_func: self.hash_fn_clone(py),
         })
     }
 
     fn __ior__(&mut self, other: &Bloom) -> PyResult<()> {
         check_compatible(self, other)?;
-        self.filter |= other.filter.clone();
+        self.filter |= &other.filter;
         Ok(())
     }
 
-    fn __and__(&self, other: &Bloom) -> PyResult<Bloom> {
+    fn __and__(&self, py: Python<'_>, other: &Bloom) -> PyResult<Bloom> {
         check_compatible(self, other)?;
         Ok(Bloom {
-            filter: self.filter.clone() & other.filter.clone(),
+            filter: &self.filter & &other.filter,
             k: self.k,
-            hash_func: self.hash_func.clone(),
+            hash_func: self.hash_fn_clone(py),
         })
     }
 
     fn __iand__(&mut self, other: &Bloom) -> PyResult<()> {
         check_compatible(self, other)?;
-        self.filter &= other.filter.clone();
+        self.filter &= &other.filter;
         Ok(())
     }
 
-    #[args(others = "*")]
+    #[pyo3(signature = (*others))]
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
@@ -145,32 +143,51 @@ impl Bloom {
         Ok(())
     }
 
-    #[args(others = "*")]
+    #[pyo3(signature = (*others))]
     fn intersection_update(&mut self, others: &PyTuple) -> PyResult<()> {
+        // Lazily allocated temp bitset
+        let mut temp: Option<Self> = None;
         for other in others.iter() {
-            // If the other object is a Bloom, use the bitwise union
-            if other.is_instance_of::<Bloom>()? {
-                self.__iand__(&other.extract()?)?;
+            // If the other object is a Bloom, use the bitwise intersection
+            if let Ok(other) = other.extract::<Bloom>() {
+                self.__iand__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
-                let mut temp = self.clone();
+                let temp = temp.get_or_insert_with(|| self.clone());
                 temp.clear();
                 for obj in other.iter()? {
                     temp.add(obj?)?;
                 }
-                self.__iand__(&temp)?;
+                self.__iand__(temp)?;
             }
         }
         Ok(())
     }
 
+    #[pyo3(signature = ())]
     fn clear(&mut self) {
         self.filter.clear();
     }
 
+    #[pyo3(signature = ())]
     fn copy(&self) -> Bloom {
         self.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Bloom(approximate_size={:.1})", self.approx_items())
+    }
+
+    fn __bool__(&self) -> bool {
+        !self.filter.is_empty()
+    }
+}
+
+// Non-python methods
+impl Bloom {
+    fn hash_fn_clone(&self, py: Python<'_>) -> Option<PyObject> {
+        self.hash_func.as_ref().map(|f| f.clone_ref(py))
     }
 }
 
@@ -180,73 +197,95 @@ impl Bloom {
 /// Indexing is done using u64 to avoid address space issues on 32-bit
 /// systems, which would otherwise limit the size to 2^32 bits (512MB).
 mod bitline {
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
+    type Word = usize;
+
+    const WORD_BITS: u64 = Word::BITS as u64;
+
+    #[inline(always)]
+    fn bit_idx(idx: u64) -> Option<(usize, u32)> {
+        let (q, r) = (idx / WORD_BITS, idx % WORD_BITS);
+        Some((q.try_into().ok()?, r.try_into().ok()?))
+    }
+
+    #[derive(Clone)]
     pub struct BitLine {
-        bits: Vec<u8>,
+        bits: Vec<Word>,
     }
 
     impl BitLine {
         pub fn new(size_in_bits: u64) -> PyResult<Self> {
-            let (q, r) = (size_in_bits / 8, size_in_bits % 8);
-            let size = if r == 0 { q } else { q + 1 };
-            Ok(BitLine {
-                bits: vec![0; size.try_into()?],
-            })
+            match bit_idx(size_in_bits) {
+                Some((q, r)) => {
+                    let size = if r == 0 { q } else { q + 1 };
+                    Ok(Self {
+                        bits: vec![0; size],
+                    })
+                }
+                None => Err(PyValueError::new_err("too many bits")),
+            }
         }
 
         /// Make sure that index is less than len when calling this!
         pub fn set(&mut self, index: u64) {
-            let (q, r) = (index / 8, index % 8);
-            self.bits[q as usize] |= 1 << r;
+            let (idx, offset) = bit_idx(index).unwrap();
+            self.bits[idx] |= 1 << offset;
         }
 
         /// Make sure that index is less than len when calling this!
         pub fn get(&self, index: u64) -> bool {
-            let (q, r) = (index / 8, index % 8);
-            self.bits[q as usize] & (1 << r) != 0
+            let (idx, offset) = bit_idx(index).unwrap();
+            self.bits[idx] & (1 << offset) != 0
         }
 
         /// Returns the number of bits in the BitLine
         pub fn len(&self) -> u64 {
-            self.bits.len() as u64 * 8
+            self.bits.len() as u64 * WORD_BITS
         }
 
         pub fn clear(&mut self) {
-            for i in 0..self.bits.len() {
-                self.bits[i] = 0;
-            }
+            self.bits.fill(0);
         }
 
         pub fn sum(&self) -> u64 {
             self.bits.iter().map(|x| x.count_ones() as u64).sum()
         }
-    }
 
-    impl Clone for BitLine {
-        fn clone(&self) -> Self {
-            BitLine {
-                bits: self.bits.clone(),
-            }
+        pub fn is_empty(&self) -> bool {
+            self.bits.iter().all(|&word| word == 0)
         }
     }
 
     impl std::ops::BitAnd for BitLine {
         type Output = Self;
 
+        fn bitand(mut self, rhs: Self) -> Self::Output {
+            self &= rhs;
+            self
+        }
+    }
+
+    impl std::ops::BitAnd for &BitLine {
+        type Output = BitLine;
+
         fn bitand(self, rhs: Self) -> Self::Output {
             let mut result = self.clone();
-            for i in 0..self.bits.len() {
-                result.bits[i] &= rhs.bits[i];
-            }
+            result &= rhs;
             result
         }
     }
 
     impl std::ops::BitAndAssign for BitLine {
         fn bitand_assign(&mut self, rhs: Self) {
-            for i in 0..self.bits.len() {
-                self.bits[i] &= rhs.bits[i];
+            *self &= &rhs;
+        }
+    }
+    impl std::ops::BitAndAssign<&BitLine> for BitLine {
+        fn bitand_assign(&mut self, rhs: &Self) {
+            for (lhs, rhs) in self.bits.iter_mut().zip(rhs.bits.iter()) {
+                *lhs &= rhs;
             }
         }
     }
@@ -254,19 +293,32 @@ mod bitline {
     impl std::ops::BitOr for BitLine {
         type Output = Self;
 
+        fn bitor(mut self, rhs: Self) -> Self::Output {
+            self |= rhs;
+            self
+        }
+    }
+
+    impl std::ops::BitOr for &BitLine {
+        type Output = BitLine;
+
         fn bitor(self, rhs: Self) -> Self::Output {
             let mut result = self.clone();
-            for i in 0..self.bits.len() {
-                result.bits[i] |= rhs.bits[i];
-            }
+            result |= rhs;
             result
         }
     }
 
     impl std::ops::BitOrAssign for BitLine {
         fn bitor_assign(&mut self, rhs: Self) {
-            for i in 0..self.bits.len() {
-                self.bits[i] |= rhs.bits[i];
+            *self |= &rhs;
+        }
+    }
+
+    impl std::ops::BitOrAssign<&BitLine> for BitLine {
+        fn bitor_assign(&mut self, rhs: &Self) {
+            for (lhs, rhs) in self.bits.iter_mut().zip(rhs.bits.iter()) {
+                *lhs |= rhs;
             }
         }
     }
@@ -322,31 +374,24 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     }
 
     // now only the hash function can be different
-    let mut works = true;
-    match a.hash_func {
-        Some(ref hash_func) => match b.hash_func {
-            Some(ref hash_func2) => {
-                works &= hash_func.is(hash_func2);
-            }
-            None => {
-                works = false;
-            }
-        },
-        None => {
-            works &= b.hash_func.is_none();
-        }
-    }
-    match works {
-        true => Ok(()),
-        false => Err(pyo3::exceptions::PyValueError::new_err(
+    let same_hash_fn = match (&a.hash_func, &b.hash_func) {
+        (Some(lhs), Some(rhs)) => lhs.is(rhs),
+        (&None, &None) => true,
+        _ => false,
+    };
+
+    if same_hash_fn {
+        Ok(())
+    } else {
+        Err(pyo3::exceptions::PyValueError::new_err(
             "Bloom filters must have the same hash function",
-        )),
+        ))
     }
 }
 
-fn get_builtin_hash_func(py: Python<'_>) -> PyResult<PyObject> {
+fn get_builtin_hash_func(py: Python<'_>) -> PyResult<&'_ PyAny> {
     let builtins = PyModule::import(py, "builtins")?;
-    Ok(builtins.getattr("hash")?.to_object(py))
+    builtins.getattr("hash")
 }
 
 #[pymodule]
