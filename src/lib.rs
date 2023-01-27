@@ -176,7 +176,13 @@ impl Bloom {
     }
 
     fn __repr__(&self) -> String {
-        format!("Bloom(approximate_size={:.1})", self.approx_items())
+        // Use a format that makes it clear that the object
+        // cannot be reconstructed from the repr
+        format!(
+            "<Bloom size_in_bits={} approx_items={:.1}>",
+            self.size_in_bits(),
+            self.approx_items()
+        )
     }
 
     fn __bool__(&self) -> bool {
