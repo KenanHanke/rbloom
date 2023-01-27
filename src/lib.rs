@@ -191,7 +191,7 @@ impl Bloom {
     }
 }
 
-/// This is a primitive BitVec-like structure that uses a Vec<u8> as
+/// This is a primitive BitVec-like structure that uses a Vec as
 /// the backing store; it exists here to avoid the need for a dependency
 /// on bitvec and to act as a container around all the bit manipulation.
 /// Indexing is done using u64 to avoid address space issues on 32-bit
