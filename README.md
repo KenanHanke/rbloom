@@ -163,7 +163,9 @@ class Bloom:
 
     def __contains__(self, object) -> bool    # object in self
 
-    def __bool__(self) -> bool                # bool(self)
+    def __bool__(self) -> bool                # False if empty
+
+    def __repr__(self) -> str                 # Basic info
 
     def __or__(self, other: Bloom) -> Bloom   # self | other
 
