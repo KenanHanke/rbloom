@@ -130,8 +130,8 @@ impl Bloom {
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
-            if other.is_instance_of::<Bloom>()? {
-                self.__ior__(&other.extract()?)?;
+            if let Ok(other) = other.extract::<Bloom>() {
+                self.__ior__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
