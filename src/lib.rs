@@ -86,6 +86,44 @@ impl Bloom {
         Ok(())
     }
 
+    /// Return True if the set has no elements in common with other.
+    ///
+    /// This can have false negatives (return false for two Bloom objects which
+    /// do not share any common items), but it will not return a false positve:
+    /// If this returns true, the sets are known to be definitely distinct
+    ///
+    /// Can only be used to compare Boom objects initialized with the same parameters.
+    #[pyo3(signature = (other,/))]
+    fn is_definite_disjoint(&self, other: &PyAny) -> PyResult<bool> {
+        self.with_other_as_bloom(other, |other_bloom| {
+            Ok(self.filter.is_disjoint(&other_bloom.filter))
+        })
+    }
+
+    /// Test whether every element in the bloom may be in other
+    ///
+    /// This can have false positives (return true for a bloom which does not
+    /// contain all items in this set), but it will not return a false negative:
+    /// If this returns false, this set contains an element which is not in other
+    #[pyo3(signature = (other, /))]
+    fn may_be_subset(&self, other: &PyAny) -> PyResult<bool> {
+        self.with_other_as_bloom(other, |other_bloom| {
+            Ok(self.filter.is_subset(&other_bloom.filter))
+        })
+    }
+
+    /// Test whether every element in other may be in self
+    ///
+    /// This can have false positives (return true for a bloom which does not
+    /// contain all items in other), but it will not return a false negative:
+    /// If this returns false, other contains an element which is not in self
+    #[pyo3(signature = (other, /))]
+    fn may_be_superset(&self, other: &PyAny) -> PyResult<bool> {
+        self.with_other_as_bloom(other, |other_bloom| {
+            Ok(other_bloom.filter.is_subset(&self.filter))
+        })
+    }
+
     fn __contains__(&self, o: &PyAny) -> PyResult<bool> {
         let hash = hash(o, &self.hash_func)?;
         for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
@@ -94,6 +132,32 @@ impl Bloom {
             }
         }
         Ok(true)
+    }
+
+    /// Return a new set with elements from the set and all others.
+    #[pyo3(signature = (*others))]
+    fn union(&self, others: &PyTuple) -> PyResult<Self> {
+        let mut result = self.clone();
+        for item in others.iter() {
+            self.with_other_as_bloom(item, |other_bloom| {
+                result.__ior__(other_bloom)?;
+                Ok(())
+            })?;
+        }
+        Ok(result)
+    }
+
+    /// Return a new set with elements common to the set and all others.
+    #[pyo3(signature = (*others))]
+    fn intersection(&self, others: &PyTuple) -> PyResult<Self> {
+        let mut result = self.clone();
+        for item in others.iter() {
+            self.with_other_as_bloom(item, |other_bloom| {
+                result.__iand__(other_bloom)?;
+                Ok(())
+            })?;
+        }
+        Ok(result)
     }
 
     fn __or__(&self, py: Python<'_>, other: &Bloom) -> PyResult<Bloom> {
@@ -129,16 +193,7 @@ impl Bloom {
     #[pyo3(signature = (*others))]
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
-            // If the other object is a Bloom, use the bitwise union
-            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
-                self.__ior__(&other)?;
-            }
-            // Otherwise, iterate over the other object and add each item
-            else {
-                for obj in other.iter()? {
-                    self.add(obj?)?;
-                }
-            }
+            self.update_single(other)?;
         }
         Ok(())
     }
@@ -212,6 +267,53 @@ impl Bloom {
     fn hash_fn_clone(&self, py: Python<'_>) -> Option<PyObject> {
         self.hash_func.as_ref().map(|f| f.clone_ref(py))
     }
+
+    fn update_single(&mut self, other: &PyAny) -> PyResult<()> {
+        // If the other object is a Bloom, use the bitwise union
+        if let Ok(other) = other.extract::<PyRef<Bloom>>() {
+            self.__ior__(&other)?;
+        }
+        // Otherwise, iterate over the other object and add each item
+        else {
+            for obj in other.iter()? {
+                self.add(obj?)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn zeroed_clone(&self, py: Python<'_>) -> Bloom {
+        Bloom {
+            filter: BitLine::new(self.filter.len()).unwrap(),
+            k: self.k,
+            hash_func: self.hash_fn_clone(py),
+        }
+    }
+
+    /// Extract other as a bloom, or iterate other, and add all items to a temporary bloom
+    fn with_other_as_bloom<O>(
+        &self,
+        other: &PyAny,
+        f: impl FnOnce(&Bloom) -> PyResult<O>,
+    ) -> PyResult<O> {
+        let mut other_bloom_storage: Bloom;
+        let pyref_storage: PyRef<Bloom>;
+        let other_bloom: &Bloom = match other.extract::<PyRef<Bloom>>() {
+            Ok(o) => {
+                check_compatible(self, &o)?;
+                pyref_storage = o;
+                &pyref_storage
+            }
+            Err(_) => {
+                other_bloom_storage = self.zeroed_clone(other.py());
+                for obj in other.iter()? {
+                    other_bloom_storage.add(obj?)?;
+                }
+                &other_bloom_storage
+            }
+        };
+        f(other_bloom)
+    }
 }
 
 /// This is a primitive BitVec-like structure that uses a Vec as
@@ -278,6 +380,21 @@ mod bitline {
 
         pub fn is_empty(&self) -> bool {
             self.bits.iter().all(|&word| word == 0)
+        }
+
+        fn all_pairs(&self, other: &Self, mut f: impl FnMut(Word, Word) -> bool) -> bool {
+            self.bits
+                .iter()
+                .zip(&other.bits)
+                .all(move |(&lhs, &rhs)| f(lhs, rhs))
+        }
+
+        pub fn is_disjoint(&self, other: &BitLine) -> bool {
+            self.all_pairs(other, |lhs, rhs| lhs & rhs == 0)
+        }
+
+        pub fn is_subset(&self, other: &BitLine) -> bool {
+            self.all_pairs(other, |lhs, rhs| (lhs | rhs) == rhs)
         }
     }
 
