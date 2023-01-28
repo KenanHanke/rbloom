@@ -337,7 +337,7 @@ mod bitline {
 
     #[derive(Clone, PartialEq, Eq)]
     pub struct BitLine {
-        bits: Vec<Word>,
+        bits: Box<[Word]>,
     }
 
     impl BitLine {
@@ -346,7 +346,7 @@ mod bitline {
                 Some((q, r)) => {
                     let size = if r == 0 { q } else { q + 1 };
                     Ok(Self {
-                        bits: vec![0; size],
+                        bits: vec![0; size].into_boxed_slice(),
                     })
                 }
                 None => Err(PyValueError::new_err("too many bits")),
@@ -382,20 +382,20 @@ mod bitline {
             self.bits.iter().all(|&word| word == 0)
         }
 
-        fn all_pairs(&self, other: &Self, mut f: impl FnMut(Word, Word) -> bool) -> bool {
-            self.bits
-                .iter()
-                .zip(&other.bits)
-                .all(move |(&lhs, &rhs)| f(lhs, rhs))
-        }
-
         pub fn is_disjoint(&self, other: &BitLine) -> bool {
-            self.all_pairs(other, |lhs, rhs| lhs & rhs == 0)
+            all_pairs(self, other, |lhs, rhs| lhs & rhs == 0)
         }
 
         pub fn is_subset(&self, other: &BitLine) -> bool {
-            self.all_pairs(other, |lhs, rhs| (lhs | rhs) == rhs)
+            all_pairs(self, other, |lhs, rhs| (lhs | rhs) == rhs)
         }
+    }
+
+    fn all_pairs(lhs: &BitLine, rhs: &BitLine, mut f: impl FnMut(Word, Word) -> bool) -> bool {
+        lhs.bits
+            .iter()
+            .zip(rhs.bits.iter())
+            .all(move |(&lhs, &rhs)| f(lhs, rhs))
     }
 
     impl std::ops::BitAnd for BitLine {
