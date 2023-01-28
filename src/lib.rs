@@ -1,5 +1,5 @@
 use bitline::BitLine;
-use pyo3::{prelude::*, types::PyTuple};
+use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
 
 #[pyclass]
 #[derive(Clone)]
@@ -188,6 +188,23 @@ impl Bloom {
     fn __bool__(&self) -> bool {
         !self.filter.is_empty()
     }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> PyResult<PyObject> {
+        match op {
+            CompareOp::Eq => {
+                check_compatible(self, other)?;
+                Ok((self.filter == other.filter).to_object(py))
+            }
+            CompareOp::Ne => {
+                check_compatible(self, other)?;
+                Ok((self.filter != other.filter).to_object(py))
+            }
+            _ => Ok(py.NotImplemented()),
+        }
+    }
+
+    #[classattr]
+    const __hash__: Option<PyObject> = None;
 }
 
 // Non-python methods
@@ -216,7 +233,7 @@ mod bitline {
         Some((q.try_into().ok()?, r.try_into().ok()?))
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq, Eq)]
     pub struct BitLine {
         bits: Vec<Word>,
     }
