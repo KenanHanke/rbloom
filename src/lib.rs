@@ -130,7 +130,7 @@ impl Bloom {
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
-            if let Ok(other) = other.extract::<Bloom>() {
+            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
                 self.__ior__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
@@ -149,7 +149,7 @@ impl Bloom {
         let mut temp: Option<Self> = None;
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise intersection
-            if let Ok(other) = other.extract::<Bloom>() {
+            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
                 self.__iand__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
