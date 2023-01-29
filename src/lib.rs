@@ -296,23 +296,19 @@ impl Bloom {
         other: &PyAny,
         f: impl FnOnce(&Bloom) -> PyResult<O>,
     ) -> PyResult<O> {
-        let mut other_bloom_storage: Bloom;
-        let pyref_storage: PyRef<Bloom>;
-        let other_bloom: &Bloom = match other.extract::<PyRef<Bloom>>() {
+        match other.extract::<PyRef<Bloom>>() {
             Ok(o) => {
                 check_compatible(self, &o)?;
-                pyref_storage = o;
-                &pyref_storage
+                f(&o)
             }
             Err(_) => {
-                other_bloom_storage = self.zeroed_clone(other.py());
+                let mut other_bloom = self.zeroed_clone(other.py());
                 for obj in other.iter()? {
-                    other_bloom_storage.add(obj?)?;
+                    other_bloom.add(obj?)?;
                 }
-                &other_bloom_storage
+                f(&other_bloom)
             }
-        };
-        f(other_bloom)
+        }
     }
 }
 
