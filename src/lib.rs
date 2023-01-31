@@ -86,20 +86,6 @@ impl Bloom {
         Ok(())
     }
 
-    /// Return True if the set has no elements in common with other.
-    ///
-    /// This can have false negatives (return false for two Bloom objects which
-    /// do not share any common items), but it will not return a false positve:
-    /// If this returns true, the sets are known to be definitely distinct
-    ///
-    /// Can only be used to compare Boom objects initialized with the same parameters.
-    #[pyo3(signature = (other,/))]
-    fn is_definite_disjoint(&self, other: &PyAny) -> PyResult<bool> {
-        self.with_other_as_bloom(other, |other_bloom| {
-            Ok(self.filter.is_disjoint(&other_bloom.filter))
-        })
-    }
-
     /// Test whether every element in the bloom may be in other
     ///
     /// This can have false positives (return true for a bloom which does not
@@ -138,12 +124,7 @@ impl Bloom {
     #[pyo3(signature = (*others))]
     fn union(&self, others: &PyTuple) -> PyResult<Self> {
         let mut result = self.clone();
-        for item in others.iter() {
-            self.with_other_as_bloom(item, |other_bloom| {
-                result.__ior__(other_bloom)?;
-                Ok(())
-            })?;
-        }
+        result.update(others)?;
         Ok(result)
     }
 
@@ -151,12 +132,7 @@ impl Bloom {
     #[pyo3(signature = (*others))]
     fn intersection(&self, others: &PyTuple) -> PyResult<Self> {
         let mut result = self.clone();
-        for item in others.iter() {
-            self.with_other_as_bloom(item, |other_bloom| {
-                result.__iand__(other_bloom)?;
-                Ok(())
-            })?;
-        }
+        result.intersection_update(others)?;
         Ok(result)
     }
 
@@ -193,7 +169,16 @@ impl Bloom {
     #[pyo3(signature = (*others))]
     fn update(&mut self, others: &PyTuple) -> PyResult<()> {
         for other in others.iter() {
-            self.update_single(other)?;
+            // If the other object is a Bloom, use the bitwise union
+            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
+                self.__ior__(&other)?;
+            }
+            // Otherwise, iterate over the other object and add each item
+            else {
+                for obj in other.iter()? {
+                    self.add(obj?)?;
+                }
+            }
         }
         Ok(())
     }
@@ -266,20 +251,6 @@ impl Bloom {
 impl Bloom {
     fn hash_fn_clone(&self, py: Python<'_>) -> Option<PyObject> {
         self.hash_func.as_ref().map(|f| f.clone_ref(py))
-    }
-
-    fn update_single(&mut self, other: &PyAny) -> PyResult<()> {
-        // If the other object is a Bloom, use the bitwise union
-        if let Ok(other) = other.extract::<PyRef<Bloom>>() {
-            self.__ior__(&other)?;
-        }
-        // Otherwise, iterate over the other object and add each item
-        else {
-            for obj in other.iter()? {
-                self.add(obj?)?;
-            }
-        }
-        Ok(())
     }
 
     fn zeroed_clone(&self, py: Python<'_>) -> Bloom {
