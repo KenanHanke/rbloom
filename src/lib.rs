@@ -92,7 +92,7 @@ impl Bloom {
     /// contain all items in this set), but it will not return a false negative:
     /// If this returns false, this set contains an element which is not in other
     #[pyo3(signature = (other, /))]
-    fn may_be_subset(&self, other: &PyAny) -> PyResult<bool> {
+    fn issubset(&self, other: &PyAny) -> PyResult<bool> {
         self.with_other_as_bloom(other, |other_bloom| {
             Ok(self.filter.is_subset(&other_bloom.filter))
         })
@@ -104,7 +104,7 @@ impl Bloom {
     /// contain all items in other), but it will not return a false negative:
     /// If this returns false, other contains an element which is not in self
     #[pyo3(signature = (other, /))]
-    fn may_be_superset(&self, other: &PyAny) -> PyResult<bool> {
+    fn issuperset(&self, other: &PyAny) -> PyResult<bool> {
         self.with_other_as_bloom(other, |other_bloom| {
             Ok(other_bloom.filter.is_subset(&self.filter))
         })
@@ -229,18 +229,16 @@ impl Bloom {
         !self.filter.is_empty()
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> PyResult<PyObject> {
-        match op {
-            CompareOp::Eq => {
-                check_compatible(self, other)?;
-                Ok((self.filter == other.filter).to_object(py))
-            }
-            CompareOp::Ne => {
-                check_compatible(self, other)?;
-                Ok((self.filter != other.filter).to_object(py))
-            }
-            _ => Ok(py.NotImplemented()),
-        }
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        check_compatible(self, other)?;
+        Ok(match op {
+            CompareOp::Eq => self.filter == other.filter,
+            CompareOp::Ne => self.filter != other.filter,
+            CompareOp::Le => self.filter.is_subset(&other.filter),
+            CompareOp::Lt => self.filter.is_strict_subset(&other.filter),
+            CompareOp::Ge => other.filter.is_subset(&self.filter),
+            CompareOp::Gt => other.filter.is_strict_subset(&self.filter),
+        })
     }
 
     #[classattr]
@@ -349,12 +347,17 @@ mod bitline {
             self.bits.iter().all(|&word| word == 0)
         }
 
-        pub fn is_disjoint(&self, other: &BitLine) -> bool {
-            all_pairs(self, other, |lhs, rhs| lhs & rhs == 0)
-        }
-
         pub fn is_subset(&self, other: &BitLine) -> bool {
             all_pairs(self, other, |lhs, rhs| (lhs | rhs) == rhs)
+        }
+
+        pub fn is_strict_subset(&self, other: &BitLine) -> bool {
+            let mut is_equal = true;
+            let is_subset = all_pairs(self, other, |lhs, rhs| {
+                is_equal &= lhs == rhs;
+                (lhs | rhs) == rhs
+            });
+            is_subset && !is_equal
         }
     }
 
