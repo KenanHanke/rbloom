@@ -112,13 +112,13 @@ for i in range(10_000_000):
 
 This resulted in the following runtimes:
 
-| Library                                                            | Time     | Notes                                 |
-| ------------------------------------------------------------------ | -------- | ------------------------------------- |
-| [rBloom](https://pypi.org/project/rbloom/)                         | 5.956s   | works out-of-the-box                  |
-| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11.280s  | surprisingly hard to get working [1]  |
-| [pybloom3](https://pypi.org/project/pybloom3/)                     | 75.871s  | works out-of-the-box                  |
-| [Flor](https://pypi.org/project/Flor/)                             | 128.837s | doesn't work on arbitrary objects [2] |
-| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 325.044s | doesn't work on arbitrary objects [2] |
+| Library                                                            | Time      | Notes                                 |
+| ------------------------------------------------------------------ | --------- | ------------------------------------- |
+| [rBloom](https://pypi.org/project/rbloom/)                         | 5.956 s   | works out-of-the-box                  |
+| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11.280 s  | surprisingly hard to get working [1]  |
+| [pybloom3](https://pypi.org/project/pybloom3/)                     | 75.871 s  | works out-of-the-box                  |
+| [Flor](https://pypi.org/project/Flor/)                             | 128.837 s | doesn't work on arbitrary objects [2] |
+| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 325.044 s | doesn't work on arbitrary objects [2] |
 
 [1] It refused to install on Python 3.11 and kept segfaulting on 3.10 (on Linux
 as of January 2023), so I installed 3.7 on my machine for this benchmark.  
