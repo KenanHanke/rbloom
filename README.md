@@ -6,11 +6,11 @@
 
 A fast, simple and lightweight
 [Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) library for
-Python, implemented in Rust. It's designed to be as pythonic as
-possible, mimicking the built-in `set` type where it can, and works with
-any hashable object. While it's a new kid on the block (this project was
-started in 2023), it's also currently the fastest kid on the block by a
-long shot (see the section
+Python, implemented in Rust. It's designed to be as pythonic as possible,
+mimicking the built-in `set` type where it can, and works with any
+hashable object. While it's a new library (this project was started in
+2023), it's currently the fastest option for Python by
+a long shot (see the section
 [Benchmarks](#benchmarks)). Releases are published on
 [PyPI](https://pypi.org/project/rbloom/).
 
