@@ -14,7 +14,7 @@ classifiers = [
 
 
 [project.urls]
-"Source Code" = "https://github.com/kenbyte/rbloom"
+"Source Code" = "https://github.com/KenanHanke/rbloom"
 
 [tool.maturin]
 sdist-include = ["LICENSE", "README.md"]
