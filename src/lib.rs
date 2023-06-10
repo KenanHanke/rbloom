@@ -4,6 +4,7 @@ use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::mem;
 
 #[pyclass(module = "rbloom")]
 #[derive(Clone)]
@@ -260,7 +261,7 @@ impl Bloom {
 
         let mut file = File::open(filepath)?;
 
-        let mut k_bytes = [0; 8];
+        let mut k_bytes = [0; mem::size_of::<u64>()];
         file.read_exact(&mut k_bytes)?;
         let k = u64::from_le_bytes(k_bytes);
 
