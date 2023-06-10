@@ -209,12 +209,10 @@ impl Bloom {
         Ok(())
     }
 
-    #[pyo3(signature = ())]
     fn clear(&mut self) {
         self.filter.clear();
     }
 
-    #[pyo3(signature = ())]
     fn copy(&self) -> Bloom {
         self.clone()
     }
