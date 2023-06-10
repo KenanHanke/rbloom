@@ -1,5 +1,5 @@
 use bitline::BitLine;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
 use std::fs::File;
@@ -25,18 +25,16 @@ impl Bloom {
         // Check the inputs
         if let Some(hash_func) = hash_func {
             if !hash_func.is_callable() {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
-                    "hash_func must be callable",
-                ));
+                return Err(PyTypeError::new_err("hash_func must be callable"));
             }
         }
         if false_positive_rate <= 0.0 || false_positive_rate >= 1.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "false_positive_rate must be between 0 and 1",
             ));
         }
         if expected_items == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "expected_items must be greater than 0",
             ));
         }
@@ -250,9 +248,7 @@ impl Bloom {
     fn load(_cls: &PyType, filepath: &str, hash_func: &PyAny) -> PyResult<Bloom> {
         // check that the hash_func is callable
         if !hash_func.is_callable() {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "hash_func must be callable",
-            ));
+            return Err(PyTypeError::new_err("hash_func must be callable"));
         }
         // check that the hash_func isn't the built-in hash function
         if hash_func.is(get_builtin_hash_func(hash_func.py())?) {
@@ -540,7 +536,7 @@ fn hash(o: &PyAny, hash_func: &Option<PyObject>) -> PyResult<i128> {
 
 fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     if a.k != b.k || a.filter.len() != b.filter.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
+        return Err(PyValueError::new_err(
             "size and max false positive rate must be the same for both filters",
         ));
     }
@@ -555,7 +551,7 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     if same_hash_fn {
         Ok(())
     } else {
-        Err(pyo3::exceptions::PyValueError::new_err(
+        Err(PyValueError::new_err(
             "Bloom filters must have the same hash function",
         ))
     }
