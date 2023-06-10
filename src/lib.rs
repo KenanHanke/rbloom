@@ -1,11 +1,12 @@
 use bitline::BitLine;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::mem;
 
-#[pyclass]
+#[pyclass(module = "rbloom")]
 #[derive(Clone)]
 struct Bloom {
     filter: BitLine,
@@ -25,18 +26,16 @@ impl Bloom {
         // Check the inputs
         if let Some(hash_func) = hash_func {
             if !hash_func.is_callable() {
-                return Err(pyo3::exceptions::PyTypeError::new_err(
-                    "hash_func must be callable",
-                ));
+                return Err(PyTypeError::new_err("hash_func must be callable"));
             }
         }
         if false_positive_rate <= 0.0 || false_positive_rate >= 1.0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "false_positive_rate must be between 0 and 1",
             ));
         }
         if expected_items == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            return Err(PyValueError::new_err(
                 "expected_items must be greater than 0",
             ));
         }
@@ -61,11 +60,13 @@ impl Bloom {
         })
     }
 
+    /// Number of buckets in the filter
     #[getter]
     fn size_in_bits(&self) -> u64 {
         self.filter.len()
     }
 
+    /// Retrieve the hash_func given to __init__
     #[getter]
     fn hash_func<'a>(&'a self, py: Python<'a>) -> PyResult<&'a PyAny> {
         match self.hash_func.as_ref() {
@@ -74,6 +75,7 @@ impl Bloom {
         }
     }
 
+    /// Estimated number of items in the filter
     #[getter]
     fn approx_items(&self) -> f64 {
         let len = self.filter.len() as f64;
@@ -209,12 +211,10 @@ impl Bloom {
         Ok(())
     }
 
-    #[pyo3(signature = ())]
     fn clear(&mut self) {
         self.filter.clear();
     }
 
-    #[pyo3(signature = ())]
     fn copy(&self) -> Bloom {
         self.clone()
     }
@@ -248,13 +248,12 @@ impl Bloom {
     #[classattr]
     const __hash__: Option<PyObject> = None;
 
+    /// Load from a file, see "Persistence" section in the README
     #[classmethod]
     fn load(_cls: &PyType, filepath: &str, hash_func: &PyAny) -> PyResult<Bloom> {
         // check that the hash_func is callable
         if !hash_func.is_callable() {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "hash_func must be callable",
-            ));
+            return Err(PyTypeError::new_err("hash_func must be callable"));
         }
         // check that the hash_func isn't the built-in hash function
         if hash_func.is(get_builtin_hash_func(hash_func.py())?) {
@@ -266,7 +265,7 @@ impl Bloom {
 
         let mut file = File::open(filepath)?;
 
-        let mut k_bytes = [0; 8];
+        let mut k_bytes = [0; mem::size_of::<u64>()];
         file.read_exact(&mut k_bytes)?;
         let k = u64::from_le_bytes(k_bytes);
 
@@ -279,6 +278,7 @@ impl Bloom {
         })
     }
 
+    /// Save to a file, see "Persistence" section in the README
     fn save(&self, filepath: &str) -> PyResult<()> {
         if self.hash_func.is_none() {
             return Err(PyValueError::new_err(
@@ -542,7 +542,7 @@ fn hash(o: &PyAny, hash_func: &Option<PyObject>) -> PyResult<i128> {
 
 fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     if a.k != b.k || a.filter.len() != b.filter.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
+        return Err(PyValueError::new_err(
             "size and max false positive rate must be the same for both filters",
         ));
     }
@@ -557,7 +557,7 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
     if same_hash_fn {
         Ok(())
     } else {
-        Err(pyo3::exceptions::PyValueError::new_err(
+        Err(PyValueError::new_err(
             "Bloom filters must have the same hash function",
         ))
     }

@@ -1,6 +1,7 @@
-from typing import Any, Callable, Iterable, Union
+from typing import Any, Callable, Iterable, Union, final
 
 
+@final
 class Bloom:
 
     # expected_items:  max number of items to be added to the filter
@@ -23,7 +24,7 @@ class Bloom:
 
     # load from file, see section "Persistence"
     @classmethod
-    def load(cls, filepath: str, hash_func) -> Bloom: ...
+    def load(cls, filepath: str, hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # save to file, see section "Persistence"
     def save(self, filepath: str) -> None: ...
@@ -34,7 +35,7 @@ class Bloom:
     #                     OF THE BUILT-IN SET TYPE                      #
     #####################################################################
 
-    def add(self, obj: Any) -> None: ...
+    def add(self, obj: Any, /) -> None: ...
 
     def __contains__(self, obj: Any) -> bool: ...
 
@@ -67,13 +68,13 @@ class Bloom:
     def __gt__(self, other: Bloom) -> bool: ...
     def __le__(self, other: Bloom) -> bool: ...
     def __ge__(self, other: Bloom) -> bool: ...
-    def __eq__(self, other: Bloom) -> bool: ...
-    def __ne__(self, other: Bloom) -> bool: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
 
-    def issubset(self, other: Bloom) -> bool: ...      # self <= other
+    def issubset(self, other: Bloom, /) -> bool: ...      # self <= other
 
-    def issuperset(self, other: Bloom) -> bool: ...    # self >= other
+    def issuperset(self, other: Bloom, /) -> bool: ...    # self >= other
 
-    def clear(self) -> None: ...                       # remove all items
+    def clear(self) -> None: ...                          # remove all items
 
-    def copy(self) -> Bloom: ...                       # duplicate self
+    def copy(self) -> Bloom: ...                          # duplicate self
