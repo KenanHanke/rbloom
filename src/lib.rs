@@ -5,7 +5,7 @@ use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
 
-#[pyclass]
+#[pyclass(module = "rbloom")]
 #[derive(Clone)]
 struct Bloom {
     filter: BitLine,
