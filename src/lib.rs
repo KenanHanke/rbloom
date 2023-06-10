@@ -60,11 +60,13 @@ impl Bloom {
         })
     }
 
+    /// Number of buckets in the filter
     #[getter]
     fn size_in_bits(&self) -> u64 {
         self.filter.len()
     }
 
+    /// Retrieve the hash_func given to __init__
     #[getter]
     fn hash_func<'a>(&'a self, py: Python<'a>) -> PyResult<&'a PyAny> {
         match self.hash_func.as_ref() {
@@ -73,6 +75,7 @@ impl Bloom {
         }
     }
 
+    /// Estimated number of items in the filter
     #[getter]
     fn approx_items(&self) -> f64 {
         let len = self.filter.len() as f64;
@@ -245,6 +248,7 @@ impl Bloom {
     #[classattr]
     const __hash__: Option<PyObject> = None;
 
+    /// Load from a file, see "Persistence" section in the README
     #[classmethod]
     fn load(_cls: &PyType, filepath: &str, hash_func: &PyAny) -> PyResult<Bloom> {
         // check that the hash_func is callable
@@ -274,6 +278,7 @@ impl Bloom {
         })
     }
 
+    /// Save to a file, see "Persistence" section in the README
     fn save(&self, filepath: &str) -> PyResult<()> {
         if self.hash_func.is_none() {
             return Err(PyValueError::new_err(
