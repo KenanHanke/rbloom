@@ -1,7 +1,7 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, prelude::*, types::PyTuple};
+use pyo3::{basic::CompareOp, prelude::*, types::PyTuple, types::PyBytes};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -278,6 +278,33 @@ impl Bloom {
         })
     }
 
+    /// Load from a bytes(), see "Persistence" section in the README
+    #[classmethod]
+    fn load_bytes(_cls: &PyType, bytes: &[u8], hash_func: &PyAny) -> PyResult<Bloom> {
+        // check that the hash_func is callable
+        if !hash_func.is_callable() {
+            return Err(PyTypeError::new_err("hash_func must be callable"));
+        }
+        // check that the hash_func isn't the built-in hash function
+        if hash_func.is(get_builtin_hash_func(hash_func.py())?) {
+            return Err(PyValueError::new_err(
+                "Cannot load a bloom filter that uses the built-in hash function",
+            ));
+        }
+        let hash_func = Some(hash_func.to_object(hash_func.py()));
+
+        let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0 .. mem::size_of::<u64>()].try_into().expect("slice with incorrect length");
+        let k = u64::from_le_bytes(k_bytes);
+
+        let filter = BitLine::load_bytes(&bytes[mem::size_of::<u64>()..])?;
+
+        Ok(Bloom {
+            filter,
+            k,
+            hash_func,
+        })
+    }
+
     /// Save to a file, see "Persistence" section in the README
     fn save(&self, filepath: &str) -> PyResult<()> {
         if self.hash_func.is_none() {
@@ -289,6 +316,22 @@ impl Bloom {
         file.write_all(&self.k.to_le_bytes())?;
         self.filter.save(&mut file)?;
         Ok(())
+    }
+
+    /// Save to a byte(), see "Persistence" section in the README
+    fn save_bytes(&self, py: Python<'_>) -> PyResult<PyObject> {
+        if self.hash_func.is_none() {
+            return Err(PyValueError::new_err(
+                "Cannot save a bloom filter that uses the built-in hash function",
+            ));
+        }
+
+        let serialized:Vec<u8> = [
+            &self.k.to_le_bytes(),
+            &self.filter.bits as &[u8]
+        ].concat();
+
+        Ok(PyBytes::new(py, &serialized).into())
     }
 }
 
@@ -350,7 +393,7 @@ mod bitline {
 
     #[derive(Clone, PartialEq, Eq)]
     pub struct BitLine {
-        bits: Box<[u8]>,
+        pub bits: Box<[u8]>,
     }
 
     impl BitLine {
@@ -417,6 +460,16 @@ mod bitline {
                 bits: bits.into_boxed_slice(),
             })
         }
+
+        /// Given the provided [u8]
+        /// returns a BitLine containing the data.
+        pub fn load_bytes(bytes: &[u8]) -> PyResult<Self> {
+            let bits = bytes.to_vec();
+            Ok(Self {
+                bits: bits.into_boxed_slice(),
+            })
+        }
+
 
         /// Writes the BitLine to the given file from the current position.
         pub fn save(&self, file: &mut File) -> PyResult<()> {

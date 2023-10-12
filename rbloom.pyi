@@ -26,8 +26,15 @@ class Bloom:
     @classmethod
     def load(cls, filepath: str, hash_func: Callable[[Any], int]) -> Bloom: ...
 
+    # load from bytes(), see section "Persistence"
+    @classmethod
+    def load_bytes(cls, data: bytes, hash_func: Callable[[Any], int]) -> Bloom: ...
+
     # save to file, see section "Persistence"
     def save(self, filepath: str) -> None: ...
+
+    # save to a bytes(), see section "Persistence"
+    def save_bytes(self) -> bytes: ...
 
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
