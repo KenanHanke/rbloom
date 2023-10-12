@@ -87,6 +87,12 @@ def test_bloom(bloom: Bloom):
             # remove the file
             os.remove(filename)
 
+        # TEST bytes PERSISTENCE
+        bloom_bytes = bloom.save_bytes()
+        assert type(bloom_bytes) == bytes
+        bloom3 = Bloom.load_bytes(bloom_bytes, bloom.hash_func)
+        assert bloom == bloom3
+
 
 def sha_based(obj):
     h = sha256(dumps(obj)).digest()
