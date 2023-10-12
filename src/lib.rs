@@ -1,7 +1,8 @@
 use bitline::BitLine;
+use pyo3_file::PyFileLikeObject;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyTuple};
+use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyString, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -13,6 +14,40 @@ struct Bloom {
     k: u64, // Number of hash functions (implemented via a LCG that uses
     // the original hash as a seed)
     hash_func: Option<PyObject>,
+}
+
+#[derive(Debug)]
+enum SaveLoadType {
+    Filepath(String),
+    FileLike(PyFileLikeObject),
+	Bytes(PyBytes),
+    None
+}
+
+impl SaveLoadType {
+    pub fn from_pyobject(saveloadtype: Option<PyObject>) -> PyResult<SaveLoadType> {
+        Python::with_gil(|py| {
+            match saveloadtype {
+                None => {
+                    Ok(SaveLoadType::None)
+                }
+                Some(obj) => {
+                    // is a string
+                    if let Ok(string_ref) = obj.downcast::<PyString>(py) {
+                        return Ok(SaveLoadType::Filepath(
+                            string_ref.to_string_lossy().to_string(),
+                        ));
+                    }
+
+                    // is a file-like
+                    match PyFileLikeObject::with_requirements(obj, true, false, true) {
+                        Ok(f) => Ok(SaveLoadType::FileLike(f)),
+                        Err(e) => Err(e)
+                    }
+                }
+            }
+        })
+    }
 }
 
 #[pymethods]
@@ -261,24 +296,46 @@ impl Bloom {
     }
 
     /// Save to a file, see "Persistence" section in the README
-    fn save(&self, filepath: &str) -> PyResult<()> {
-        if self.hash_func.is_none() {
-            return Err(PyValueError::new_err(
-                "Cannot save a bloom filter that uses the built-in hash function",
-            ));
+    fn save(&self, dest: Option<PyObject>) -> PyResult<PyObject> {
+        match SaveLoadType::from_pyobject(dest) {
+            Ok(f) => match f {
+                SaveLoadType::Filepath(filepath) => {
+                    let file = File::create(filepath)?;
+                    let _ = self.save_to_write(|| Ok::<_, PyErr>(file));
+                    Python::with_gil(|py| {
+                        Ok(().to_object(py))
+                    })
+                }
+                SaveLoadType::FileLike(f) => {
+                    // f.write_all(&self.k.to_le_bytes())?;
+                    // self.filter.save(f)?;
+                    let _ = self.save_to_write(|| Ok::<_, PyErr>(f));
+                    Python::with_gil(|py| {
+                        Ok(().to_object(py))
+                    })
+                }
+                SaveLoadType::Bytes(_) | SaveLoadType::None => {
+                    let mut bytes =
+                        Vec::with_capacity(mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize);
+                    self.save_to_write(|| Ok::<_, std::convert::Infallible>(&mut bytes))?;
+                    Python::with_gil(|py| {
+                        Ok(PyBytes::new(py, &bytes).into())
+                    })
+
+                }
+            }
+            Err(e) => Err(e)
         }
-        let mut file = File::create(filepath)?;
-        file.write_all(&self.k.to_le_bytes())?;
-        self.filter.save(&mut file)?;
-        Ok(())
     }
 
     /// Save to a byte(), see "Persistence" section in the README
-    fn save_bytes(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn save_bytes(&self) -> PyResult<PyObject> {
         let mut bytes =
             Vec::with_capacity(mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize);
         self.save_to_write(|| Ok::<_, std::convert::Infallible>(&mut bytes))?;
-        Ok(PyBytes::new(py, &bytes).into())
+		Python::with_gil(|py| {
+			Ok(PyBytes::new(py, &bytes).into())
+		})
     }
 }
 
