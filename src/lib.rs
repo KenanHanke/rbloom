@@ -1,8 +1,8 @@
 use bitline::BitLine;
-use pyo3_file::PyFileLikeObject;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyString, types::PyTuple};
+use pyo3_file::PyFileLikeObject;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -20,29 +20,23 @@ struct Bloom {
 enum SaveLoadType {
     Filepath(String),
     FileLike(PyFileLikeObject),
-	Bytes(PyBytes),
-    None
+    Bytes(Vec<u8>),
+    None,
 }
 
 impl SaveLoadType {
     pub fn from_pyobject(saveloadtype: Option<PyObject>) -> PyResult<SaveLoadType> {
-        Python::with_gil(|py| {
-            match saveloadtype {
-                None => {
-                    Ok(SaveLoadType::None)
-                }
-                Some(obj) => {
-                    // is a string
-                    if let Ok(string_ref) = obj.downcast::<PyString>(py) {
-                        return Ok(SaveLoadType::Filepath(
-                            string_ref.to_string_lossy().to_string(),
-                        ));
-                    }
-
-                    // is a file-like
+        Python::with_gil(|py| match saveloadtype {
+            None => Ok(SaveLoadType::None),
+            Some(obj) => {
+                if let Ok(str) = obj.downcast::<PyString>(py) {
+                    Ok(SaveLoadType::Filepath(str.to_string()))
+                } else if let Ok(bytes) = obj.downcast::<PyBytes>(py) {
+                    Ok(SaveLoadType::Bytes(bytes.as_bytes().to_vec()))
+                } else {
                     match PyFileLikeObject::with_requirements(obj, true, false, true) {
                         Ok(f) => Ok(SaveLoadType::FileLike(f)),
-                        Err(e) => Err(e)
+                        Err(e) => Err(e),
                     }
                 }
             }
@@ -285,14 +279,22 @@ impl Bloom {
 
     /// Load from a file, see "Persistence" section in the README
     #[classmethod]
-    fn load(_cls: &PyType, filepath: &str, hash_func: &PyAny) -> PyResult<Bloom> {
-        Self::load_from_read(hash_func, || File::open(filepath))
-    }
-
-    /// Load from a bytes(), see "Persistence" section in the README
-    #[classmethod]
-    fn load_bytes(_cls: &PyType, bytes: &[u8], hash_func: &PyAny) -> PyResult<Bloom> {
-        Self::load_from_read(hash_func, || Ok::<_, std::convert::Infallible>(bytes))
+    fn load(_cls: &PyType, src: PyObject, hash_func: &PyAny) -> PyResult<Bloom> {
+        // Self::load_from_read(hash_func, || File::open(filepath))
+        match SaveLoadType::from_pyobject(Some(src)) {
+            Ok(f) => match f {
+                SaveLoadType::Filepath(filepath) => {
+                    let file = File::open(filepath)?;
+                    Self::load_from_read(hash_func, || Ok::<_, PyErr>(file))
+                }
+                SaveLoadType::FileLike(f) => Self::load_from_read(hash_func, || Ok::<_, PyErr>(f)),
+                SaveLoadType::Bytes(b) => Self::load_from_read(hash_func, || {
+                    Ok::<&[u8], std::convert::Infallible>(b.as_ref())
+                }),
+                _ => Err(PyErr::new::<PyTypeError, _>("Incorrect argument type")),
+            },
+            Err(e) => Err(e),
+        }
     }
 
     /// Save to a file, see "Persistence" section in the README
@@ -302,40 +304,22 @@ impl Bloom {
                 SaveLoadType::Filepath(filepath) => {
                     let file = File::create(filepath)?;
                     let _ = self.save_to_write(|| Ok::<_, PyErr>(file));
-                    Python::with_gil(|py| {
-                        Ok(().to_object(py))
-                    })
+                    Python::with_gil(|py| Ok(().to_object(py)))
                 }
                 SaveLoadType::FileLike(f) => {
-                    // f.write_all(&self.k.to_le_bytes())?;
-                    // self.filter.save(f)?;
                     let _ = self.save_to_write(|| Ok::<_, PyErr>(f));
-                    Python::with_gil(|py| {
-                        Ok(().to_object(py))
-                    })
+                    Python::with_gil(|py| Ok(().to_object(py)))
                 }
                 SaveLoadType::Bytes(_) | SaveLoadType::None => {
-                    let mut bytes =
-                        Vec::with_capacity(mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize);
+                    let mut bytes = Vec::with_capacity(
+                        mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize,
+                    );
                     self.save_to_write(|| Ok::<_, std::convert::Infallible>(&mut bytes))?;
-                    Python::with_gil(|py| {
-                        Ok(PyBytes::new(py, &bytes).into())
-                    })
-
+                    Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
                 }
-            }
-            Err(e) => Err(e)
+            },
+            Err(e) => Err(e),
         }
-    }
-
-    /// Save to a byte(), see "Persistence" section in the README
-    fn save_bytes(&self) -> PyResult<PyObject> {
-        let mut bytes =
-            Vec::with_capacity(mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize);
-        self.save_to_write(|| Ok::<_, std::convert::Infallible>(&mut bytes))?;
-		Python::with_gil(|py| {
-			Ok(PyBytes::new(py, &bytes).into())
-		})
     }
 }
 
@@ -394,7 +378,6 @@ impl Bloom {
         self.filter.save(writer)?;
         Ok(())
     }
-
 
     fn zeroed_clone(&self, py: Python<'_>) -> Bloom {
         Bloom {

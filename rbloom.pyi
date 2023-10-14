@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, Union, final
+from typing import Any, Callable, Iterable, Union, final, Optional, BinaryIO
 
 
 @final
@@ -8,7 +8,7 @@ class Bloom:
     # false_positive_rate:  max false positive rate of the filter
     # hash_func:  optional argument, see section "Cryptographic security"
     def __init__(self, expected_items: int, false_positive_rate: float,
-                 hash_func=__builtins__.hash) -> None: ...
+                 hash_func: Callable[[Any], int]=__builtins__.hash) -> None: ...
 
     # number of buckets in the filter
     @property
@@ -24,17 +24,10 @@ class Bloom:
 
     # load from file, see section "Persistence"
     @classmethod
-    def load(cls, filepath: str, hash_func: Callable[[Any], int]) -> Bloom: ...
+    def load(cls, dest: Union[bytes, str, BinaryIO], hash_func: Callable[[Any], int]) -> Bloom: ...
 
-    # load from bytes(), see section "Persistence"
-    @classmethod
-    def load_bytes(cls, data: bytes, hash_func: Callable[[Any], int]) -> Bloom: ...
-
-    # save to file, see section "Persistence"
-    def save(self, filepath: str) -> None: ...
-
-    # save to a bytes(), see section "Persistence"
-    def save_bytes(self) -> bytes: ...
+    # save to file, file object, or return bytes, see section "Persistence"
+    def save(self, source: Optional[Union[str, BinaryIO]] = None) -> Union[bytes, None]: ...
 
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
