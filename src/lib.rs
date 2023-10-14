@@ -277,10 +277,9 @@ impl Bloom {
     #[classattr]
     const __hash__: Option<PyObject> = None;
 
-    /// Load from a file, see "Persistence" section in the README
+    /// Load from a file, fileobj or bytes, see "Persistence" section in the README
     #[classmethod]
     fn load(_cls: &PyType, src: PyObject, hash_func: &PyAny) -> PyResult<Bloom> {
-        // Self::load_from_read(hash_func, || File::open(filepath))
         match SaveLoadType::from_pyobject(Some(src)) {
             Ok(f) => match f {
                 SaveLoadType::Filepath(filepath) => {
@@ -297,7 +296,7 @@ impl Bloom {
         }
     }
 
-    /// Save to a file, see "Persistence" section in the README
+    /// Save to a file, fileobj or bytes, see "Persistence" section in the README
     fn save(&self, dest: Option<PyObject>) -> PyResult<PyObject> {
         match SaveLoadType::from_pyobject(dest) {
             Ok(f) => match f {

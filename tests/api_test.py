@@ -4,6 +4,7 @@ from rbloom import Bloom
 from hashlib import sha256
 from pickle import dumps
 import os
+import io
 
 
 def test_bloom(bloom: Bloom):
@@ -88,10 +89,19 @@ def test_bloom(bloom: Bloom):
             os.remove(filename)
 
         # TEST bytes PERSISTENCE
-        bloom_bytes = bloom.save_bytes()
+        bloom_bytes = bloom.save()
         assert type(bloom_bytes) == bytes
-        bloom3 = Bloom.load_bytes(bloom_bytes, bloom.hash_func)
+        bloom3 = Bloom.load(bloom_bytes, bloom.hash_func)
         assert bloom == bloom3
+
+        # TEST fileobj PERSISTENCE
+        fileobj = io.BytesIO()
+
+        bloom.save(fileobj)
+        fileobj.seek(0)
+
+        bloom4 = Bloom.load(fileobj, bloom.hash_func)
+        assert bloom == bloom4
 
 
 def sha_based(obj):
