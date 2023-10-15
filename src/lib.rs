@@ -1,7 +1,7 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyString, types::PyTuple};
+use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyTuple};
 use pyo3_file::PyFileLikeObject;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -16,32 +16,25 @@ struct Bloom {
     hash_func: Option<PyObject>,
 }
 
-#[derive(Debug)]
-enum SaveLoadType {
-    Filepath(String),
-    FileLike(PyFileLikeObject),
-    Bytes(Vec<u8>),
-    None,
+fn extract_readable_file(obj: &PyAny) -> PyResult<PyFileLikeObject> {
+    PyFileLikeObject::with_requirements(obj.into(), true, false, false)
 }
 
-impl SaveLoadType {
-    pub fn from_pyobject(saveloadtype: Option<PyObject>) -> PyResult<SaveLoadType> {
-        Python::with_gil(|py| match saveloadtype {
-            None => Ok(SaveLoadType::None),
-            Some(obj) => {
-                if let Ok(str) = obj.downcast::<PyString>(py) {
-                    Ok(SaveLoadType::Filepath(str.to_string()))
-                } else if let Ok(bytes) = obj.downcast::<PyBytes>(py) {
-                    Ok(SaveLoadType::Bytes(bytes.as_bytes().to_vec()))
-                } else {
-                    match PyFileLikeObject::with_requirements(obj, true, false, true) {
-                        Ok(f) => Ok(SaveLoadType::FileLike(f)),
-                        Err(e) => Err(e),
-                    }
-                }
-            }
-        })
-    }
+fn extract_writable_file(obj: &PyAny) -> PyResult<PyFileLikeObject> {
+    PyFileLikeObject::with_requirements(obj.into(), false, true, false)
+}
+
+#[derive(Debug, FromPyObject)]
+enum SaveDest {
+    Filepath(String),
+    FileLike(#[pyo3(from_py_with = "extract_writable_file")] PyFileLikeObject),
+}
+
+#[derive(Debug, FromPyObject)]
+enum LoadSrc<'a> {
+    Filepath(String),
+    FileLike(#[pyo3(from_py_with = "extract_readable_file")] PyFileLikeObject),
+    Bytes(&'a [u8]),
 }
 
 #[pymethods]
@@ -279,46 +272,39 @@ impl Bloom {
 
     /// Load from a file, fileobj or bytes, see "Persistence" section in the README
     #[classmethod]
-    fn load(_cls: &PyType, src: PyObject, hash_func: &PyAny) -> PyResult<Bloom> {
-        match SaveLoadType::from_pyobject(Some(src)) {
-            Ok(f) => match f {
-                SaveLoadType::Filepath(filepath) => {
-                    let file = File::open(filepath)?;
-                    Self::load_from_read(hash_func, || Ok::<_, PyErr>(file))
-                }
-                SaveLoadType::FileLike(f) => Self::load_from_read(hash_func, || Ok::<_, PyErr>(f)),
-                SaveLoadType::Bytes(b) => Self::load_from_read(hash_func, || {
-                    Ok::<&[u8], std::convert::Infallible>(b.as_ref())
-                }),
-                _ => Err(PyErr::new::<PyTypeError, _>("Incorrect argument type")),
-            },
-            Err(e) => Err(e),
+    fn load(_cls: &PyType, src: LoadSrc, hash_func: &PyAny) -> PyResult<Bloom> {
+        match src {
+            LoadSrc::Filepath(filepath) => Self::load_from_read(hash_func, || File::open(filepath)),
+            LoadSrc::FileLike(f) => Self::load_from_read_obj(hash_func, f),
+            LoadSrc::Bytes(b) => Self::load_from_read_obj(hash_func, b),
         }
     }
 
     /// Save to a file, fileobj or bytes, see "Persistence" section in the README
-    fn save(&self, dest: Option<PyObject>) -> PyResult<PyObject> {
-        match SaveLoadType::from_pyobject(dest) {
-            Ok(f) => match f {
-                SaveLoadType::Filepath(filepath) => {
-                    let file = File::create(filepath)?;
-                    let _ = self.save_to_write(|| Ok::<_, PyErr>(file));
-                    Python::with_gil(|py| Ok(().to_object(py)))
-                }
-                SaveLoadType::FileLike(f) => {
-                    let _ = self.save_to_write(|| Ok::<_, PyErr>(f));
-                    Python::with_gil(|py| Ok(().to_object(py)))
-                }
-                SaveLoadType::Bytes(_) | SaveLoadType::None => {
-                    let mut bytes = Vec::with_capacity(
-                        mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize,
-                    );
-                    self.save_to_write(|| Ok::<_, std::convert::Infallible>(&mut bytes))?;
-                    Python::with_gil(|py| Ok(PyBytes::new(py, &bytes).into()))
-                }
-            },
-            Err(e) => Err(e),
-        }
+    fn save<'py>(&self, py: Python<'py>, dest: Option<SaveDest>) -> PyResult<Option<&'py PyBytes>> {
+        Ok(match dest {
+            Some(SaveDest::Filepath(filepath)) => {
+                self.save_to_write(|| File::create(filepath))?;
+                None
+            }
+            Some(SaveDest::FileLike(f)) => {
+                self.save_to_write_obj(f)?;
+                None
+            }
+            None => {
+                let len = mem::size_of_val(&self.k) + (self.filter.len() / 8) as usize;
+
+                // Write into a new PyBytes object directly
+                let py_bytes = PyBytes::new_with(py, len, |bytes| {
+                    let mut writer = &mut bytes[..];
+                    self.save_to_write_obj(&mut writer)?;
+                    // This should always be true if our len calculation was correct
+                    assert!(writer.is_empty());
+                    Ok(())
+                })?;
+                Some(py_bytes)
+            }
+        })
     }
 }
 
@@ -326,6 +312,15 @@ impl Bloom {
 impl Bloom {
     fn hash_fn_clone(&self, py: Python<'_>) -> Option<PyObject> {
         self.hash_func.as_ref().map(|f| f.clone_ref(py))
+    }
+
+    // Convenience method for reading from an already created reader object, rather
+    // than passing a closure to create the reader
+    fn load_from_read_obj<R>(hash_func: &PyAny, reader: R) -> PyResult<Self>
+    where
+        R: Read,
+    {
+        Self::load_from_read(hash_func, || Ok::<_, std::convert::Infallible>(reader))
     }
 
     fn load_from_read<F, R, E>(hash_func: &PyAny, get_data: F) -> PyResult<Self>
@@ -359,6 +354,15 @@ impl Bloom {
             k,
             hash_func,
         })
+    }
+
+    // Convenience method for saving to an already created writer object, rather
+    // than passing a closure to create the writer
+    fn save_to_write_obj<W>(&self, writer: W) -> PyResult<()>
+    where
+        W: Write,
+    {
+        self.save_to_write(|| Ok::<_, std::convert::Infallible>(writer))
     }
 
     fn save_to_write<F, W, E>(&self, get_writer: F) -> PyResult<()>

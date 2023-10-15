@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable, Union, final, Optional, BinaryIO
+from typing import Any, Callable, Iterable, Union, final, Optional, BinaryIO, overload
 
 
 @final
@@ -27,7 +27,11 @@ class Bloom:
     def load(cls, dest: Union[bytes, str, BinaryIO], hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # save to file, file object, or return bytes, see section "Persistence"
-    def save(self, source: Optional[Union[str, BinaryIO]] = None) -> Union[bytes, None]: ...
+    @overload
+    def save(self, source: Union[str, BinaryIO]) -> None: ...
+
+    @overload
+    def save(self) -> bytes: ...
 
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
