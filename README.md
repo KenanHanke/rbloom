@@ -153,10 +153,13 @@ class Bloom:
     def approx_items(self) -> float    # estimated number of items in
                                        # the filter
 
+    # see section "Persistence" for more information on these four methods
     @classmethod
-    def load(cls, filepath: str, hash_func) -> Bloom      # see "Persistence"
-
-    def save(self, filepath: str)                 # see section "Persistence"
+    def load(cls, filepath: str, hash_func) -> Bloom
+    def save(self, filepath: str)
+    @classmethod
+    def load_bytes(cls, data: bytes, hash_func) -> Bloom
+    def save_bytes(self) -> bytes
 
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
@@ -239,22 +242,32 @@ using the built-in hash.
 
 ## Persistence
 
-The `save` and `load` methods allow you to save and load filters to and
-from disk. However, as the built-in hash function's salt changes between
-invocations of Python, they only work on filters with custom hash
-functions. Note that it is your responsibility to ensure that the hash
-function you supply to `load` is the same as the one originally used by
-the filter you're loading!
+The `save` and `load` methods, along with their byte-oriented counterparts
+`save_bytes` and `load_bytes`, allow you to save and load filters to and
+from disk/Python `bytes` objects. However, as the built-in hash function's
+salt changes between invocations of Python, they only work on filters with
+custom hash functions. Note that it is your responsibility to ensure that
+the hash function you supply to the loading functions is the same as the
+one originally used by the filter you're loading!
 
 ```python
 bf = Bloom(10_000, 0.01, some_hash_func)
 bf.add("hello")
 bf.add("world")
 
+# saving to a file
 bf.save("bf.bloom")
 
+# loading from a file
 loaded_bf = Bloom.load("bf.bloom", some_hash_func)
 assert loaded_bf == bf
+
+# saving to bytes
+bf_bytes = bf.save_bytes()
+
+# loading from bytes
+loaded_bf_from_bytes = Bloom.load_bytes(bf_bytes, some_hash_func)
+assert loaded_bf_from_bytes == bf
 ```
 
 The size of the file is `bf.size_in_bits / 8 + 8` bytes.
