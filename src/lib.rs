@@ -1,7 +1,7 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, prelude::*, types::PyTuple, types::PyBytes};
+use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -293,7 +293,9 @@ impl Bloom {
         }
         let hash_func = Some(hash_func.to_object(hash_func.py()));
 
-        let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0 .. mem::size_of::<u64>()].try_into().expect("slice with incorrect length");
+        let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0..mem::size_of::<u64>()]
+            .try_into()
+            .expect("slice with incorrect length");
         let k = u64::from_le_bytes(k_bytes);
 
         let filter = BitLine::load_bytes(&bytes[mem::size_of::<u64>()..])?;
@@ -326,10 +328,7 @@ impl Bloom {
             ));
         }
 
-        let serialized:Vec<u8> = [
-            &self.k.to_le_bytes(),
-            &self.filter.bits as &[u8]
-        ].concat();
+        let serialized: Vec<u8> = [&self.k.to_le_bytes(), &self.filter.bits as &[u8]].concat();
 
         Ok(PyBytes::new(py, &serialized).into())
     }
@@ -469,7 +468,6 @@ mod bitline {
                 bits: bits.into_boxed_slice(),
             })
         }
-
 
         /// Writes the BitLine to the given file from the current position.
         pub fn save(&self, file: &mut File) -> PyResult<()> {
