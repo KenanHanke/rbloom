@@ -328,7 +328,7 @@ impl Bloom {
             ));
         }
 
-        let serialized: Vec<u8> = [&self.k.to_le_bytes(), &self.filter.bits as &[u8]].concat();
+        let serialized: Vec<u8> = [&self.k.to_le_bytes(), self.filter.bits() as &[u8]].concat();
 
         Ok(PyBytes::new(py, &serialized).into())
     }
@@ -392,7 +392,7 @@ mod bitline {
 
     #[derive(Clone, PartialEq, Eq)]
     pub struct BitLine {
-        pub bits: Box<[u8]>,
+        bits: Box<[u8]>,
     }
 
     impl BitLine {
@@ -473,6 +473,10 @@ mod bitline {
         pub fn save(&self, file: &mut File) -> PyResult<()> {
             file.write_all(&self.bits)?;
             Ok(())
+        }
+
+        pub fn bits(&self) -> &[u8] {
+            &self.bits
         }
     }
 
