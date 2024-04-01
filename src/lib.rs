@@ -174,7 +174,8 @@ impl Bloom {
     fn update(&mut self, others: &Bound<'_, PyTuple>) -> PyResult<()> {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
-            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
+            if let Ok(other) = other.downcast::<Bloom>() {
+                let other = other.try_borrow()?;
                 self.__ior__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
@@ -193,7 +194,8 @@ impl Bloom {
         let mut temp: Option<Self> = None;
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise intersection
-            if let Ok(other) = other.extract::<PyRef<Bloom>>() {
+            if let Ok(other) = other.downcast::<Bloom>() {
+                let other = other.try_borrow()?;
                 self.__iand__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
@@ -365,8 +367,9 @@ impl Bloom {
         other: &Bound<'_, PyAny>,
         f: impl FnOnce(&Bloom) -> PyResult<O>,
     ) -> PyResult<O> {
-        match other.extract::<PyRef<Bloom>>() {
+        match other.downcast::<Bloom>() {
             Ok(o) => {
+                let o = o.try_borrow()?;
                 check_compatible(self, &o)?;
                 f(&o)
             }
