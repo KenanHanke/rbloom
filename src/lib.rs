@@ -6,6 +6,7 @@ use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyTuple};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
+use std::path::PathBuf;
 
 #[pyclass(module = "rbloom")]
 #[derive(Clone)]
@@ -252,7 +253,7 @@ impl Bloom {
     #[classmethod]
     fn load(
         _cls: &Bound<'_, PyType>,
-        filepath: &str,
+        filepath: PathBuf,
         hash_func: &Bound<'_, PyAny>,
     ) -> PyResult<Bloom> {
         // check that the hash_func is callable
@@ -316,7 +317,7 @@ impl Bloom {
     }
 
     /// Save to a file, see "Persistence" section in the README
-    fn save(&self, filepath: &str) -> PyResult<()> {
+    fn save(&self, filepath: PathBuf) -> PyResult<()> {
         if self.hash_func.is_none() {
             return Err(PyValueError::new_err(
                 "Cannot save a bloom filter that uses the built-in hash function",

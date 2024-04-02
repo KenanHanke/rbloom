@@ -1,3 +1,4 @@
+import os
 from typing import Any, Callable, Iterable, Union, final
 
 
@@ -24,14 +25,14 @@ class Bloom:
 
     # load from file, see section "Persistence"
     @classmethod
-    def load(cls, filepath: str, hash_func: Callable[[Any], int]) -> Bloom: ...
+    def load(cls, filepath: Union[str, bytes, os.PathLike], hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # load from bytes(), see section "Persistence"
     @classmethod
     def load_bytes(cls, data: bytes, hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # save to file, see section "Persistence"
-    def save(self, filepath: str) -> None: ...
+    def save(self, filepath: Union[str, bytes, os.PathLike]) -> None: ...
 
     # save to a bytes(), see section "Persistence"
     def save_bytes(self) -> bytes: ...
