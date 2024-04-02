@@ -1,8 +1,9 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, prelude::*, types::PyBytes, types::PyTuple};
+use pyo3::{basic::CompareOp, types::PyBytes, types::PyTuple, PyTraverseError, PyVisit};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -345,6 +346,11 @@ impl Bloom {
             data[K_SIZE..].copy_from_slice(self.filter.bits());
             Ok(())
         })
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.hash_func)?;
+        Ok(())
     }
 }
 
