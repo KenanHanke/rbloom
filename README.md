@@ -1,8 +1,9 @@
 # rBloom
 
 [![PyPI](https://img.shields.io/pypi/v/rbloom)](https://pypi.org/project/rbloom/)
-[![build](https://img.shields.io/github/actions/workflow/status/KenanHanke/rbloom/CI.yml)](https://github.com/KenanHanke/rbloom/actions)
 [![license](https://img.shields.io/github/license/KenanHanke/rbloom)](https://github.com/KenanHanke/rbloom/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/590172097.svg)](https://zenodo.org/doi/10.5281/zenodo.10869988)
+[![build](https://img.shields.io/github/actions/workflow/status/KenanHanke/rbloom/CI.yml)](https://github.com/KenanHanke/rbloom/actions)
 
 A fast, simple and lightweight
 [Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) library for
