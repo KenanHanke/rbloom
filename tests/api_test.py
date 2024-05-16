@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import gc
+import weakref
 
 from rbloom import Bloom
 from hashlib import sha256
@@ -99,6 +101,19 @@ def sha_based(obj):
     return int.from_bytes(h[:16], "big") - 2**127
 
 
+def circular_ref():
+    def loop_hash_func(x):
+        return sha_based(x)
+    weak_ref = weakref.ref(loop_hash_func)
+    bloom = Bloom(1000, 0.1, hash_func=loop_hash_func)
+    assert gc.get_referents(bloom) == [loop_hash_func]
+    loop_hash_func.bloom = bloom
+    del bloom
+    del loop_hash_func
+    gc.collect()
+    assert weak_ref() is None
+
+
 def api_suite():
     assert repr(Bloom(27_000, 0.0317)) == "<Bloom size_in_bits=193960 approx_items=0.0>"
     assert Bloom(1140, 0.999).hash_func == hash
@@ -108,6 +123,8 @@ def api_suite():
     test_bloom(Bloom(13242, 0.0000001))
     test_bloom(Bloom(9874124, 0.01, hash_func=sha_based))
     test_bloom(Bloom(2837, 0.5, hash_func=hash))
+
+    circular_ref()
 
     print('All API tests passed')
 
