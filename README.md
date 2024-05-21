@@ -93,7 +93,7 @@ edge cases.
 ## Benchmarks
 
 I implemented the following simple benchmark in the respective API of
-each library:
+each library (see the [comparison benchmarks](benchmarks/compare.py)):
 
 ```python
 bf = Bloom(10_000_000, 0.01)
