@@ -306,7 +306,7 @@ impl Bloom {
 
         let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0..mem::size_of::<u64>()]
             .try_into()
-            .expect("test");
+            .expect("slice with incorrect length");
         let k = u64::from_le_bytes(k_bytes);
         let filter = BitLine::load_bytes(&bytes[mem::size_of::<u64>()..])?;
 
