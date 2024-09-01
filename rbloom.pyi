@@ -1,5 +1,6 @@
 import os
 from typing import Any, Callable, Iterable, Union, final
+from collections.abc import Buffer
 
 
 @final
@@ -29,7 +30,7 @@ class Bloom:
 
     # load from bytes(), see section "Persistence"
     @classmethod
-    def load_bytes(cls, data: bytes, hash_func: Callable[[Any], int]) -> Bloom: ...
+    def load_bytes(cls, data: Buffer, hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # save to file, see section "Persistence"
     def save(self, filepath: Union[str, bytes, os.PathLike]) -> None: ...

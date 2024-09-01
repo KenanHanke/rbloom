@@ -113,6 +113,22 @@ def circular_ref():
     gc.collect()
     assert weak_ref() is None
 
+def test_buffer_load():
+    bloom = Bloom(10, 0.1, hash_func=sha_based)
+    bloom.update([
+        "test",
+        "one",
+        "two",
+        "three",
+        "teststring",
+        "abacaba"
+    ])
+
+    serialized = bloom.save_bytes()
+    view = memoryview(serialized)
+    restored = Bloom.load_bytes(view, hash_func=sha_based)
+    assert bloom == restored
+
 
 def api_suite():
     assert repr(Bloom(27_000, 0.0317)) == "<Bloom size_in_bits=193960 approx_items=0.0>"
@@ -125,6 +141,8 @@ def api_suite():
     test_bloom(Bloom(2837, 0.5, hash_func=hash))
 
     circular_ref()
+
+    test_buffer_load()
 
     print('All API tests passed')
 

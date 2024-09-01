@@ -11,5 +11,5 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.21", features = [
     "extension-module",
-    "abi3-py37",
+    "abi3-py311",
 ] } # stable ABI with minimum Python version 3.7

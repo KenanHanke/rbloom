@@ -3,7 +3,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
-use pyo3::{basic::CompareOp, types::PyBytes, types::PyTuple, PyTraverseError, PyVisit};
+use pyo3::{basic::CompareOp, types::PyBytes, types::PyTuple, PyTraverseError, PyVisit, buffer::PyBuffer};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
@@ -288,7 +288,7 @@ impl Bloom {
     #[classmethod]
     fn load_bytes(
         _cls: &Bound<'_, PyType>,
-        bytes: &[u8],
+        buffer: PyBuffer<u8>,
         hash_func: &Bound<'_, PyAny>,
     ) -> PyResult<Bloom> {
         // check that the hash_func is callable
@@ -302,12 +302,12 @@ impl Bloom {
             ));
         }
         let hash_func = Some(hash_func.to_object(hash_func.py()));
+        let bytes = unsafe { std::slice::from_raw_parts(buffer.buf_ptr() as *const u8, buffer.len_bytes()) };
 
         let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0..mem::size_of::<u64>()]
             .try_into()
-            .expect("slice with incorrect length");
+            .expect("test");
         let k = u64::from_le_bytes(k_bytes);
-
         let filter = BitLine::load_bytes(&bytes[mem::size_of::<u64>()..])?;
 
         Ok(Bloom {
