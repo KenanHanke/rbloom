@@ -92,7 +92,7 @@ edge cases.
 
 ## Benchmarks
 
-I implemented the following simple benchmark in the respective API of
+The following simple benchmark was implemented in the respective API of
 each library (see the [comparison benchmarks](benchmarks/compare.py)):
 
 ```python
@@ -105,23 +105,19 @@ for i in range(10_000_000):
     assert i + 0.5 in bf
 ```
 
-This resulted in the following runtimes:
+This resulted in the following average runtimes on an M1 Pro (confirmed to be proportional to runtimes on an Intel machine):
 
-| Library                                                            | Time      | Notes                                 |
-| ------------------------------------------------------------------ | --------- | ------------------------------------- |
-| [rBloom](https://pypi.org/project/rbloom/)                         | 5.956 s   | works out-of-the-box                  |
-| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 11.280 s  | surprisingly hard to get working [1]  |
-| [pybloom3](https://pypi.org/project/pybloom3/)                     | 75.871 s  | works out-of-the-box                  |
-| [Flor](https://pypi.org/project/Flor/)                             | 128.837 s | doesn't work on arbitrary objects [2] |
-| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 325.044 s | doesn't work on arbitrary objects [2] |
+| Library                                                            | Time    | Notes                                 |
+| ------------------------------------------------------------------ | ------- | ------------------------------------- |
+| [rBloom](https://pypi.org/project/rbloom/)                         | 2.52s   | works out-of-the-box                  |
+| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 4.78s   | unreliable [1]                        |
+| [pybloom3](https://pypi.org/project/pybloom3/)                     | 46.76s  | works out-of-the-box                  |
+| [Flor](https://pypi.org/project/Flor/)                             | 76.94s  | doesn't work on arbitrary objects [2] |
+| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 165.54s | doesn't work on arbitrary objects [2] |
 
-[1] It refused to install on Python 3.11 and kept segfaulting on 3.10 (on Linux
-as of January 2023), so I installed 3.7 on my machine for this benchmark.  
-[2] I tested both converting to bytes and pickling, and chose the faster time.
-
-The benchmark was run on a 2019 Dell XPS 15 7590 with an Intel Core
-i5-9300H. It was run 5 times for each library, and the average time was
-used.
+[1] The official package failed to install on Python 3.11 and kept segfaulting on 3.10 (Linux, January 2023). It seems to be fine for now (October 2024).
+[2] I was forced to convert to a byte representation, which is bad default behavior as it presents
+the problems mentioned below in the section "Cryptographic security".
 
 Also note that `rbloom` is compiled against a stable ABI for
 portability, and that you can get a small but measurable speedup by
