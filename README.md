@@ -211,11 +211,12 @@ to use the following example in your own code:
 from rbloom import Bloom
 from hashlib import sha256
 from pickle import dumps
-from sys import byteorder
 
 def hash_func(obj):
     h = sha256(dumps(obj)).digest()
-    return int.from_bytes(h[:16], byteorder, signed=True)
+    # use sys.byteorder instead of "big" for a small speedup when
+    # reproducibility across machines isn't a concern
+    return int.from_bytes(h[:16], "big", signed=True)
 
 bf = Bloom(100_000_000, 0.01, hash_func)
 ```
