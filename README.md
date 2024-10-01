@@ -211,10 +211,11 @@ to use the following example in your own code:
 from rbloom import Bloom
 from hashlib import sha256
 from pickle import dumps
+from sys import byteorder
 
 def hash_func(obj):
     h = sha256(dumps(obj)).digest()
-    return int.from_bytes(h[:16], "big") - 2**127
+    return int.from_bytes(h[:16], byteorder, signed=True)
 
 bf = Bloom(100_000_000, 0.01, hash_func)
 ```
