@@ -10,7 +10,6 @@ use std::mem;
 use std::path::PathBuf;
 
 #[pyclass(module = "rbloom")]
-#[derive(Clone)]
 struct Bloom {
     filter: BitLine,
     k: u64, // Number of hash functions (implemented via a LCG that uses
@@ -21,6 +20,7 @@ struct Bloom {
 #[pymethods]
 impl Bloom {
     #[new]
+    #[pyo3(signature = (expected_items, false_positive_rate, hash_func = None))]
     fn new(
         expected_items: u64,
         false_positive_rate: f64,
@@ -129,7 +129,7 @@ impl Bloom {
     /// Return a new set with elements from the set and all others.
     #[pyo3(signature = (*others))]
     fn union(&self, others: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let mut result = self.clone();
+        let mut result = self.clone_ref(others.py());
         result.update(others)?;
         Ok(result)
     }
@@ -137,7 +137,7 @@ impl Bloom {
     /// Return a new set with elements common to the set and all others.
     #[pyo3(signature = (*others))]
     fn intersection(&self, others: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let mut result = self.clone();
+        let mut result = self.clone_ref(others.py());
         result.intersection_update(others)?;
         Ok(result)
     }
@@ -182,7 +182,7 @@ impl Bloom {
             }
             // Otherwise, iterate over the other object and add each item
             else {
-                for obj in other.iter()? {
+                for obj in other.try_iter()? {
                     self.add(&obj?)?;
                 }
             }
@@ -202,9 +202,9 @@ impl Bloom {
             }
             // Otherwise, iterate over the other object and add each item
             else {
-                let temp = temp.get_or_insert_with(|| self.clone());
+                let temp = temp.get_or_insert_with(|| self.clone_ref(others.py()));
                 temp.clear();
-                for obj in other.iter()? {
+                for obj in other.try_iter()? {
                     temp.add(&obj?)?;
                 }
                 self.__iand__(temp)?;
@@ -217,8 +217,8 @@ impl Bloom {
         self.filter.clear();
     }
 
-    fn copy(&self) -> Bloom {
-        self.clone()
+    fn copy(&self, py: Python<'_>) -> Bloom {
+        self.clone_ref(py)
     }
 
     fn __repr__(&self) -> String {
@@ -267,7 +267,7 @@ impl Bloom {
                 "Cannot load a bloom filter that uses the built-in hash function",
             ));
         }
-        let hash_func = Some(hash_func.to_object(hash_func.py()));
+        let hash_func = Some(hash_func.clone().unbind());
 
         let mut file = File::open(filepath)?;
 
@@ -301,7 +301,7 @@ impl Bloom {
                 "Cannot load a bloom filter that uses the built-in hash function",
             ));
         }
-        let hash_func = Some(hash_func.to_object(hash_func.py()));
+        let hash_func = Some(hash_func.clone().unbind());
 
         let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0..mem::size_of::<u64>()]
             .try_into()
@@ -341,7 +341,7 @@ impl Bloom {
 
         debug_assert_eq!(K_SIZE, self.k.to_le_bytes().len());
         let len = K_SIZE + self.filter.bits().len();
-        PyBytes::new_bound_with(py, len, |data| {
+        PyBytes::new_with(py, len, |data| {
             data[..K_SIZE].copy_from_slice(&self.k.to_le_bytes());
             data[K_SIZE..].copy_from_slice(self.filter.bits());
             Ok(())
@@ -358,6 +358,14 @@ impl Bloom {
 impl Bloom {
     fn hash_fn_clone(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.hash_func.as_ref().map(|f| f.clone_ref(py))
+    }
+
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        Bloom {
+            filter: self.filter.clone(),
+            k: self.k,
+            hash_func: self.hash_fn_clone(py),
+        }
     }
 
     fn zeroed_clone(&self, py: Python<'_>) -> Bloom {
@@ -382,7 +390,7 @@ impl Bloom {
             }
             Err(_) => {
                 let mut other_bloom = self.zeroed_clone(other.py());
-                for obj in other.iter()? {
+                for obj in other.try_iter()? {
                     other_bloom.add(&obj?)?;
                 }
                 f(&other_bloom)
@@ -642,7 +650,7 @@ fn builtin_hash_func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
     static HASH_FUNC: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 
     let res = HASH_FUNC.get_or_try_init(py, || -> PyResult<_> {
-        let builtins = PyModule::import_bound(py, "builtins")?;
+        let builtins = PyModule::import(py, "builtins")?;
         Ok(builtins.getattr("hash")?.unbind())
     })?;
 
