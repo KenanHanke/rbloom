@@ -4,7 +4,6 @@ build-backend = "maturin"
 
 [project]
 name = "rbloom"
-version = "1.5.2"
 description = "Highly optimized Bloom filter that mimics the Python set API, written in Rust"
 requires-python = ">=3.7"
 classifiers = [
