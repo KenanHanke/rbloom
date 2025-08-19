@@ -177,8 +177,17 @@ impl Bloom {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise union
             if let Ok(other) = other.downcast::<Bloom>() {
-                let other = other.try_borrow()?;
-                self.__ior__(&other)?;
+                // Try to borrow the other bloom. If it fails, it's likely the same object as self
+                match other.try_borrow() {
+                    Ok(other_ref) => {
+                        self.__ior__(&other_ref)?;
+                    }
+                    Err(_) => {
+                        // If we can't borrow it, it's likely because it's the same object as self
+                        // Self-update is a no-op for union operation, so we skip it
+                        continue;
+                    }
+                }
             }
             // Otherwise, iterate over the other object and add each item
             else {
@@ -197,8 +206,17 @@ impl Bloom {
         for other in others.iter() {
             // If the other object is a Bloom, use the bitwise intersection
             if let Ok(other) = other.downcast::<Bloom>() {
-                let other = other.try_borrow()?;
-                self.__iand__(&other)?;
+                // Try to borrow the other bloom. If it fails, it's likely the same object as self
+                match other.try_borrow() {
+                    Ok(other_ref) => {
+                        self.__iand__(&other_ref)?;
+                    }
+                    Err(_) => {
+                        // If we can't borrow it, it's likely because it's the same object as self
+                        // Self-intersection is a no-op, so we skip it
+                        continue;
+                    }
+                }
             }
             // Otherwise, iterate over the other object and add each item
             else {

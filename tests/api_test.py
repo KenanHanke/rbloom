@@ -114,6 +114,38 @@ def circular_ref():
     assert weak_ref() is None
 
 
+def test_self_update():
+    """Test that self-update operations work without crashing (no-op behavior)"""
+    # Test basic self-update (union with self)
+    b = Bloom(100, 0.01)
+    b.add('test1')
+    b.add('test2')
+    
+    items_before = b.approx_items
+    b.update(b)  # Should not crash and should be a no-op
+    items_after = b.approx_items
+    
+    # Should be approximately the same (allowing for floating-point differences)
+    assert abs(items_before - items_after) < 0.1
+    assert 'test1' in b
+    assert 'test2' in b
+    
+    # Test self-intersection_update
+    b.intersection_update(b)  # Should not crash and should be a no-op
+    assert 'test1' in b
+    assert 'test2' in b
+    
+    # Test mixed self and other updates
+    b1 = Bloom(100, 0.01)
+    b1.add('a')
+    b2 = Bloom(100, 0.01) 
+    b2.add('b')
+    
+    b1.update(b1, b2)  # Should work: self-update + other-update
+    assert 'a' in b1
+    assert 'b' in b1
+
+
 def api_suite():
     assert repr(Bloom(27_000, 0.0317)) == "<Bloom size_in_bits=193960 approx_items=0.0>"
     assert Bloom(1140, 0.999).hash_func == hash
@@ -125,6 +157,8 @@ def api_suite():
     test_bloom(Bloom(2837, 0.5, hash_func=hash))
 
     circular_ref()
+    
+    test_self_update()
 
     print('All API tests passed')
 
