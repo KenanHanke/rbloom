@@ -49,7 +49,7 @@ impl Bloom {
 
         // Calculate the parameters for the filter
         let size_in_bits =
-            -1.0 * (expected_items as f64) * false_positive_rate.ln() / 2.0f64.ln().powi(2);
+            -(expected_items as f64) * false_positive_rate.ln() / 2.0f64.ln().powi(2);
         let k = (size_in_bits / expected_items as f64) * 2.0f64.ln();
 
         // Create the filter
