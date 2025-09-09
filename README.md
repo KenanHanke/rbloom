@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/rbloom)](https://pypi.org/project/rbloom/)
 [![license](https://img.shields.io/github/license/KenanHanke/rbloom)](https://github.com/KenanHanke/rbloom/blob/main/LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.13868469.svg)](https://doi.org/10.5281/zenodo.13868469)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17084810.svg)](https://doi.org/10.5281/zenodo.17084810)
 [![build](https://img.shields.io/github/actions/workflow/status/KenanHanke/rbloom/CI.yml)](https://github.com/KenanHanke/rbloom/actions)
 
 A fast, simple and lightweight
