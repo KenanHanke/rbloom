@@ -1,7 +1,7 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, types::PyBytes, types::PyTuple, PyTraverseError, PyVisit};
 use std::fs::File;
@@ -647,7 +647,7 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
 }
 
 fn builtin_hash_func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
-    static HASH_FUNC: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+    static HASH_FUNC: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 
     let res = HASH_FUNC.get_or_try_init(py, || -> PyResult<_> {
         let builtins = PyModule::import(py, "builtins")?;
