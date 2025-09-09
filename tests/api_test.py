@@ -113,6 +113,35 @@ def circular_ref():
     gc.collect()
     assert weak_ref() is None
 
+def operations_with_self():
+    bloom = Bloom(1000, 0.1)
+    bloom.add('foo')
+    assert 'foo' in bloom
+    bloom |= bloom
+    bloom &= bloom
+    bloom.update(bloom)
+    bloom.update(bloom, bloom)
+    bloom.update(bloom, ['bob'], bloom)
+    assert 'foo' in bloom
+    assert 'bob' in bloom
+
+    bloom.intersection_update(bloom)
+    bloom.intersection_update(bloom, bloom)
+    bloom.intersection_update(bloom, ['foo'], bloom)
+    assert 'foo' in bloom
+    assert 'bob' not in bloom
+    assert bloom == bloom
+    assert bloom <= bloom
+    assert bloom >= bloom
+    assert not (bloom > bloom)
+    assert not (bloom < bloom)
+    assert bloom.issubset(bloom)
+    assert bloom.issuperset(bloom)
+    assert bloom.union(bloom) == bloom
+    assert bloom.union(bloom, bloom) == bloom
+    assert bloom.intersection(bloom) == bloom
+    assert bloom.intersection(bloom, bloom) == bloom
+
 
 def api_suite():
     assert repr(Bloom(27_000, 0.0317)) == "<Bloom size_in_bits=193960 approx_items=0.0>"
@@ -125,6 +154,7 @@ def api_suite():
     test_bloom(Bloom(2837, 0.5, hash_func=hash))
 
     circular_ref()
+    operations_with_self()
 
     print('All API tests passed')
 

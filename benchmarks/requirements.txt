@@ -2,7 +2,7 @@
 #    uv pip compile ./requirements.in
 -e ../
     # via -r ./requirements.in
-bitarray==2.9.2
+bitarray==3.7.1
     # via pybloom3
 bloom-filter2==2.0.0
     # via -r ./requirements.in

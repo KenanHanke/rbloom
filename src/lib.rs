@@ -1,7 +1,7 @@
 use bitline::BitLine;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyType;
 use pyo3::{basic::CompareOp, types::PyBytes, types::PyTuple, PyTraverseError, PyVisit};
 use std::fs::File;
@@ -128,17 +128,19 @@ impl Bloom {
 
     /// Return a new set with elements from the set and all others.
     #[pyo3(signature = (*others))]
-    fn union(&self, others: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let mut result = self.clone_ref(others.py());
-        result.update(others)?;
+    fn union<'py>(&self, others: &Bound<'py, PyTuple>) -> PyResult<Bound<'py, Self>> {
+        let result = self.clone_ref(others.py());
+        let result = Bound::new(others.py(), result)?;
+        Self::update(&result, others)?;
         Ok(result)
     }
 
     /// Return a new set with elements common to the set and all others.
     #[pyo3(signature = (*others))]
-    fn intersection(&self, others: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let mut result = self.clone_ref(others.py());
-        result.intersection_update(others)?;
+    fn intersection<'py>(&self, others: &Bound<'py, PyTuple>) -> PyResult<Bound<'py, Self>> {
+        let result = self.clone_ref(others.py());
+        let result = Bound::new(others.py(), result)?;
+        Self::intersection_update(&result, others)?;
         Ok(result)
     }
 
@@ -172,42 +174,58 @@ impl Bloom {
         Ok(())
     }
 
+    // This function has a somewhat unusual signature (taking "self" as a &Bound). This is so it can
+    // check if attempting to call `update` with itself and continue rather than failing because
+    // self cannot be both borrowed mutably for self and in others.
     #[pyo3(signature = (*others))]
-    fn update(&mut self, others: &Bound<'_, PyTuple>) -> PyResult<()> {
-        for other in others.iter() {
+    fn update(self_bound: &Bound<'_, Self>, others: &Bound<'_, PyTuple>) -> PyResult<()> {
+        let mut self_: PyRefMut<'_, Self> = self_bound.try_borrow_mut()?;
+        for other in others.iter_borrowed() {
+            if other.is(self_bound) {
+                // OR with self is a no-op
+                continue;
+            }
             // If the other object is a Bloom, use the bitwise union
             if let Ok(other) = other.downcast::<Bloom>() {
                 let other = other.try_borrow()?;
-                self.__ior__(&other)?;
+                self_.__ior__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
                 for obj in other.try_iter()? {
-                    self.add(&obj?)?;
+                    self_.add(&obj?)?;
                 }
             }
         }
         Ok(())
     }
 
+    // This function has a somewhat unusual signature (taking "self" as a &Bound). This is so it can
+    // check if attempting to call `update` with itself and continue rather than failing because
+    // self cannot be both borrowed mutably for self and in others.
     #[pyo3(signature = (*others))]
-    fn intersection_update(&mut self, others: &Bound<'_, PyTuple>) -> PyResult<()> {
+    fn intersection_update(self_bound: &Bound<'_, Self>, others: &Bound<'_, PyTuple>) -> PyResult<()> {
+        let mut self_: PyRefMut<'_, Self> = self_bound.try_borrow_mut()?;
         // Lazily allocated temp bitset
         let mut temp: Option<Self> = None;
-        for other in others.iter() {
+        for other in others.iter_borrowed() {
+            // If the other object is self, AND with self is a no-op
+            if other.is(self_bound) {
+                continue;
+            }
             // If the other object is a Bloom, use the bitwise intersection
             if let Ok(other) = other.downcast::<Bloom>() {
                 let other = other.try_borrow()?;
-                self.__iand__(&other)?;
+                self_.__iand__(&other)?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
-                let temp = temp.get_or_insert_with(|| self.clone_ref(others.py()));
+                let temp = temp.get_or_insert_with(|| self_.clone_ref(others.py()));
                 temp.clear();
                 for obj in other.try_iter()? {
                     temp.add(&obj?)?;
                 }
-                self.__iand__(temp)?;
+                self_.__iand__(temp)?;
             }
         }
         Ok(())
@@ -647,7 +665,7 @@ fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
 }
 
 fn builtin_hash_func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
-    static HASH_FUNC: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+    static HASH_FUNC: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 
     let res = HASH_FUNC.get_or_try_init(py, || -> PyResult<_> {
         let builtins = PyModule::import(py, "builtins")?;
