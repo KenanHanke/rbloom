@@ -22,6 +22,7 @@ jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: ubuntu-latest
@@ -47,7 +48,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           sccache: "true"
-          manylinux: auto
+          manylinux: 2_28
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -57,6 +58,7 @@ jobs:
   windows:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: windows-latest
@@ -84,11 +86,12 @@ jobs:
   macos:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: macos-latest
             target: x86_64
-          - runner: macos-14
+          - runner: macos-latest
             target: aarch64
     steps:
       - uses: actions/checkout@v4
