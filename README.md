@@ -109,11 +109,11 @@ This resulted in the following average runtimes on an M1 Pro (confirmed to be pr
 
 | Library                                                            | Time    | Notes                                 |
 | ------------------------------------------------------------------ | ------- | ------------------------------------- |
-| [rBloom](https://pypi.org/project/rbloom/)                         | 2.52s   | works out-of-the-box                  |
-| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 4.78s   | unreliable [1]                        |
-| [pybloom3](https://pypi.org/project/pybloom3/)                     | 46.76s  | works out-of-the-box                  |
-| [Flor](https://pypi.org/project/Flor/)                             | 76.94s  | doesn't work on arbitrary objects [2] |
-| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 165.54s | doesn't work on arbitrary objects [2] |
+| [rBloom](https://pypi.org/project/rbloom/)                         | 1.96s   | works out-of-the-box                  |
+| [pybloomfiltermmap3](https://pypi.org/project/pybloomfiltermmap3/) | 3.54s   | unreliable [1]                        |
+| [pybloom3](https://pypi.org/project/pybloom3/)                     | 32.02s  | works out-of-the-box                  |
+| [Flor](https://pypi.org/project/Flor/)                             | 53.85s  | doesn't work on arbitrary objects [2] |
+| [bloom-filter2](https://pypi.org/project/bloom-filter2/)           | 123.08s | doesn't work on arbitrary objects [2] |
 
 [1] The official package failed to install on Python 3.11 and kept segfaulting on 3.10 (Linux, January 2023). It seems to be fine for now (October 2024).
 [2] I was forced to convert to a byte representation, which is bad default behavior as it presents
