@@ -22,12 +22,17 @@ jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: ubuntu-latest
             target: x86_64
           - runner: ubuntu-latest
             target: x86
+            # The manylinux i686 images need to install libatomic from mirrors that
+            # are no longer reachable; cross-compile with zig outside the container.
+            container: "off"
+            extra-args: --zig
           - runner: ubuntu-latest
             target: aarch64
           - runner: ubuntu-latest
@@ -45,9 +50,10 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
+          args: --release --out dist ${{ matrix.platform.extra-args }}
           sccache: "true"
-          manylinux: auto
+          manylinux: 2_28
+          container: ${{ matrix.platform.container }}
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -57,6 +63,7 @@ jobs:
   windows:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: windows-latest
@@ -84,11 +91,12 @@ jobs:
   macos:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - runner: macos-latest
             target: x86_64
-          - runner: macos-14
+          - runner: macos-latest
             target: aarch64
     steps:
       - uses: actions/checkout@v4
