@@ -106,7 +106,8 @@ def circular_ref():
         return sha_based(x)
     weak_ref = weakref.ref(loop_hash_func)
     bloom = Bloom(1000, 0.1, hash_func=loop_hash_func)
-    assert gc.get_referents(bloom) == [loop_hash_func]
+    # In Newer pyo3 versions, instances keep a reference to their type, as CPython requires.
+    assert [r for r in gc.get_referents(bloom) if r is not Bloom] == [loop_hash_func]
     loop_hash_func.bloom = bloom
     del bloom
     del loop_hash_func

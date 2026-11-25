@@ -676,7 +676,7 @@ fn builtin_hash_func(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
 }
 
 #[pymodule]
-fn rbloom(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<Bloom>()?;
-    Ok(())
+mod rbloom {
+    #[pymodule_export]
+    use super::Bloom;
 }
