@@ -121,7 +121,7 @@ the problems mentioned below in the section "Cryptographic security".
 
 Also note that `rbloom` is compiled against a stable ABI for
 portability, and that you can get a small but measurable speedup by
-removing the `"abi3-py37"` flag from `Cargo.toml` and building
+removing the `"abi3-py311"` flag from `Cargo.toml` and building
 it yourself.
 
 ## Documentation
