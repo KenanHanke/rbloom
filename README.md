@@ -158,6 +158,18 @@ class Bloom:
     def load_bytes(cls, data: bytes, hash_func) -> Bloom
     def save_bytes(self) -> bytes
 
+    # see section "Buffer-backed filters" for more information on these
+    @staticmethod
+    def buffer_size(expected_items: int, false_positive_rate: float) -> int
+    @classmethod
+    def init_buffer(cls, buffer, expected_items: int,
+                    false_positive_rate: float, hash_func=__builtins__.hash) -> Bloom
+    @classmethod
+    def load_buffer(cls, buffer, hash_func) -> Bloom
+    def release(self)                  # also via `with`
+    @property
+    def readonly(self) -> bool
+
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
     #              EQUIVALENT TO THE CORRESPONDING METHODS              #
@@ -270,6 +282,60 @@ assert loaded_bf_from_bytes == bf
 ```
 
 The size of the file is `bf.size_in_bits / 8 + 8` bytes.
+
+## Buffer-backed filters
+
+Instead of allocating its own memory, a filter can be stored in any
+contiguous object supporting the
+[buffer protocol](https://docs.python.org/3/c-api/buffer.html), such as a
+`bytearray`, an `mmap`, or a NumPy array. The buffer holds exactly what
+`save` writes to a file, so a file written by `save` can be memory-mapped
+and used directly, and a filter stored in a memory-mapped file persists
+without calling `save` at all.
+
+- `Bloom.buffer_size(expected_items, false_positive_rate)` returns the number
+  of bytes a buffer needs (for an existing filter, `size_in_bits // 8 + 8`).
+- `Bloom.init_buffer(buffer, expected_items, false_positive_rate, hash_func)`
+  creates an empty filter in a writable buffer of exactly that size,
+  overwriting whatever it held.
+- `Bloom.load_buffer(buffer, hash_func)` uses a buffer that already holds a
+  filter, such as one written by `save`, `save_bytes` or `init_buffer`. As
+  with `load`, it requires the hash function the filter was created with.
+
+```python
+import mmap
+
+# create a filter in a new file
+size = Bloom.buffer_size(10_000, 0.01)
+with open("bf.bloom", "w+b") as f:
+    f.truncate(size)
+    bits = mmap.mmap(f.fileno(), size)
+with Bloom.init_buffer(bits, 10_000, 0.01, some_hash_func) as bf:
+    bf.add("hello")  # written straight into bf.bloom
+bits.close()
+
+# use a file written by save (or the one above) without loading it
+with open("bf.bloom", "rb") as f:
+    bits = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+with Bloom.load_buffer(bits, some_hash_func) as bf:
+    assert "hello" in bf
+    assert bf.readonly
+bits.close()
+```
+
+Like a `memoryview`, a buffer-backed filter holds on to its buffer, so the
+buffer can't be resized or closed until the filter is released: either by
+calling `release()`, by leaving a `with` block, or by the filter being
+deleted. Using a released filter raises `ValueError`.
+
+A filter in a read-only buffer, like the read-only map above or a `bytes`
+object, supports everything that doesn't change it; `add`, `update`, `|=`,
+`clear` and the other changing methods raise `BufferError`.
+
+Several filters can share the same buffer, and changes made through one are
+visible to the others. Filters returned by `copy`, `union`, `|`, and the
+other operations that create a new filter own their memory and are not
+backed by the buffer.
 
 ---
 

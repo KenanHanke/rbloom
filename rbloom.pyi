@@ -1,6 +1,8 @@
 import os
 from typing import Any, Callable, Iterable, Union, final
 
+from typing_extensions import Buffer
+
 
 @final
 class Bloom:
@@ -36,6 +38,32 @@ class Bloom:
 
     # save to a bytes(), see section "Persistence"
     def save_bytes(self) -> bytes: ...
+
+    # number of bytes of a buffer holding a filter with these parameters,
+    # see section "Buffer-backed filters"
+    @staticmethod
+    def buffer_size(expected_items: int, false_positive_rate: float) -> int: ...
+
+    # create an empty filter stored in a writable buffer, see section
+    # "Buffer-backed filters"
+    @classmethod
+    def init_buffer(cls, buffer: Buffer, expected_items: int,
+                    false_positive_rate: float,
+                    hash_func: Callable[[Any], int] = ...) -> Bloom: ...
+
+    # use a buffer holding a saved filter, see section "Buffer-backed filters"
+    @classmethod
+    def load_buffer(cls, buffer: Buffer, hash_func: Callable[[Any], int]) -> Bloom: ...
+
+    # release the buffer of a buffer-backed filter, see section
+    # "Buffer-backed filters"
+    def release(self) -> None: ...
+    def __enter__(self) -> Bloom: ...
+    def __exit__(self, *args: object) -> None: ...
+
+    # whether the filter is stored in a read-only buffer
+    @property
+    def readonly(self) -> bool: ...
 
     #####################################################################
     #                    ALL SUBSEQUENT METHODS ARE                     #
