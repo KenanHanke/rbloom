@@ -1,5 +1,5 @@
 import os
-from typing import Any, Callable, Iterable, Union, final
+from typing import Any, Callable, ClassVar, Iterable, Union, final
 
 from typing_extensions import Buffer
 
@@ -11,7 +11,7 @@ class Bloom:
     # false_positive_rate:  max false positive rate of the filter
     # hash_func:  optional argument, see section "Cryptographic security"
     def __init__(self, expected_items: int, false_positive_rate: float,
-                 hash_func=__builtins__.hash) -> None: ...
+                 hash_func: Callable[[Any], int] = ...) -> None: ...
 
     # number of buckets in the filter
     @property
@@ -27,14 +27,14 @@ class Bloom:
 
     # load from file, see section "Persistence"
     @classmethod
-    def load(cls, filepath: Union[str, bytes, os.PathLike], hash_func: Callable[[Any], int]) -> Bloom: ...
+    def load(cls, filepath: Union[str, os.PathLike[str]], hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # load from bytes(), see section "Persistence"
     @classmethod
     def load_bytes(cls, data: bytes, hash_func: Callable[[Any], int]) -> Bloom: ...
 
     # save to file, see section "Persistence"
-    def save(self, filepath: Union[str, bytes, os.PathLike]) -> None: ...
+    def save(self, filepath: Union[str, os.PathLike[str]]) -> None: ...
 
     # save to a bytes(), see section "Persistence"
     def save_bytes(self) -> bytes: ...
@@ -81,11 +81,11 @@ class Bloom:
 
     def __or__(self, other: Bloom) -> Bloom: ...      # self | other
 
-    def __ior__(self, other: Bloom) -> None: ...      # self |= other
+    def __ior__(self, other: Bloom) -> Bloom: ...     # self |= other
 
     def __and__(self, other: Bloom) -> Bloom: ...     # self & other
 
-    def __iand__(self, other: Bloom) -> None: ...     # self &= other
+    def __iand__(self, other: Bloom) -> Bloom: ...    # self &= other
 
     # extension of __or__
     def union(self, *others: Union[Iterable, Bloom]) -> Bloom: ...
@@ -107,9 +107,12 @@ class Bloom:
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
 
-    def issubset(self, other: Bloom, /) -> bool: ...      # self <= other
+    # filters are mutable, so they are unhashable like sets
+    __hash__: ClassVar[None]  # type: ignore[assignment]
 
-    def issuperset(self, other: Bloom, /) -> bool: ...    # self >= other
+    def issubset(self, other: Union[Iterable, Bloom], /) -> bool: ...    # self <= other
+
+    def issuperset(self, other: Union[Iterable, Bloom], /) -> bool: ...  # self >= other
 
     def clear(self) -> None: ...                          # remove all items
 
