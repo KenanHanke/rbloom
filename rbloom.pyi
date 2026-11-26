@@ -1,7 +1,14 @@
 import os
-from typing import Any, Callable, ClassVar, Iterable, Union, final
+from typing import Any, Callable, ClassVar, Iterable, Literal, Protocol, Union, final
 
 from typing_extensions import Buffer
+
+
+class _HasFileno(Protocol):
+    def fileno(self) -> int: ...
+
+
+_MmapFile = Union[str, os.PathLike[str], _HasFileno]
 
 
 @final
@@ -10,8 +17,11 @@ class Bloom:
     # expected_items:  max number of items to be added to the filter
     # false_positive_rate:  max false positive rate of the filter
     # hash_func:  optional argument, see section "Cryptographic security"
+    # mmap_file:  optional path or file object to store the filter in, see
+    #             section "Buffer-backed filters"
     def __init__(self, expected_items: int, false_positive_rate: float,
-                 hash_func: Callable[[Any], int] = ...) -> None: ...
+                 hash_func: Callable[[Any], int] = ..., *,
+                 mmap_file: _MmapFile | None = None) -> None: ...
 
     # number of buckets in the filter
     @property
@@ -54,6 +64,12 @@ class Bloom:
     # use a buffer holding a saved filter, see section "Buffer-backed filters"
     @classmethod
     def load_buffer(cls, buffer: Buffer, hash_func: Callable[[Any], int]) -> Bloom: ...
+
+    # memory-map a file holding a saved filter and use it like load_buffer,
+    # see section "Buffer-backed filters"
+    @classmethod
+    def load_mmap(cls, file: _MmapFile, hash_func: Callable[[Any], int], *,
+                  mode: Literal["r", "rw"] = "rw") -> Bloom: ...
 
     # release the buffer of a buffer-backed filter, see section
     # "Buffer-backed filters"

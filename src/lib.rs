@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering::Relaxed;
 
 mod bitline;
 mod buffer;
+mod mapped_file;
 
 use buffer::{HeldBuffer, PyBufferRequest};
 
@@ -56,19 +57,32 @@ impl FilterParams {
 
 #[pymethods]
 impl Bloom {
+    /// With mmap_file (a path or a file object), the filter is stored in that file, which is
+    /// resized to fit and memory-mapped, as with init_buffer. See "Buffer-backed filters" section
+    /// in the README
     #[new]
-    #[pyo3(signature = (expected_items, false_positive_rate, hash_func = None))]
+    #[pyo3(signature = (expected_items, false_positive_rate, hash_func = None, *, mmap_file = None))]
     fn new(
         expected_items: u64,
         false_positive_rate: f64,
         hash_func: Option<Bound<'_, PyAny>>,
+        mmap_file: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let FilterParams { size_in_bits, k } =
             FilterParams::new(expected_items, false_positive_rate)?;
+        let hash_func = custom_hash_func(hash_func)?;
+        let filter = match mmap_file {
+            None => BitLine::new(size_in_bits)?,
+            Some(file) => {
+                let len = buffer_len(size_in_bits)?;
+                let map = mapped_file::create(&file, len)?;
+                init_buffer_filter(&map, k, len)?
+            }
+        };
         Ok(Bloom {
-            filter: BitLine::new(size_in_bits)?,
+            filter,
             k,
-            hash_func: custom_hash_func(hash_func)?,
+            hash_func,
         })
     }
 
@@ -77,7 +91,7 @@ impl Bloom {
     #[classmethod]
     #[pyo3(signature = (buffer, expected_items, false_positive_rate, hash_func = None))]
     fn init_buffer(
-        cls: &Bound<'_, PyType>,
+        _cls: &Bound<'_, PyType>,
         buffer: &Bound<'_, PyAny>,
         expected_items: u64,
         false_positive_rate: f64,
@@ -87,12 +101,8 @@ impl Bloom {
             FilterParams::new(expected_items, false_positive_rate)?;
         let hash_func = custom_hash_func(hash_func)?;
         let len = buffer_len(size_in_bits)?;
-        let buffer = HeldBuffer::get(buffer, PyBufferRequest::contig())?;
-        write_buffer_header(&buffer, k, len)?;
-        let filter = BitLine::from_buffer(buffer);
-        filter.clear(cls.py())?;
         Ok(Bloom {
-            filter,
+            filter: init_buffer_filter(buffer, k, len)?,
             k,
             hash_func,
         })
@@ -361,6 +371,22 @@ impl Bloom {
         })
     }
 
+    /// Memory-map a file (a path or a file object) holding a saved filter and use it with
+    /// load_buffer. With mode="r" the file is mapped read-only, so the filter can only be read.
+    /// See "Buffer-backed filters" section in the README
+    #[classmethod]
+    #[pyo3(signature = (file, hash_func, *, mode = "rw"))]
+    fn load_mmap(
+        cls: &Bound<'_, PyType>,
+        file: &Bound<'_, PyAny>,
+        hash_func: &Bound<'_, PyAny>,
+        mode: &str,
+    ) -> PyResult<Bloom> {
+        let access = mapped_file::Access::from_mode(mode)?;
+        let map = mapped_file::open(file, access)?;
+        Self::load_buffer(cls, map, hash_func)
+    }
+
     /// Release the buffer a buffer-backed filter is stored in, like memoryview.release(); any
     /// later use of the filter raises ValueError. Does nothing for other filters.
     fn release(&self, py: Python<'_>) {
@@ -535,6 +561,16 @@ fn custom_hash_func(hash_func: Option<Bound<'_, PyAny>>) -> PyResult<Option<Py<P
 /// Returns the number of bytes a buffer needs for the header and `size_in_bits` bits.
 fn buffer_len(size_in_bits: u64) -> PyResult<usize> {
     Ok(HEADER_SIZE + bitline::byte_len(size_in_bits)?)
+}
+
+/// Creates an empty filter with `k` hash functions in `buffer`, which must be exactly `len` bytes.
+fn init_buffer_filter(buffer: &Bound<'_, PyAny>, k: u64, len: usize) -> PyResult<BitLine> {
+    let py = buffer.py();
+    let buffer = HeldBuffer::get(buffer, PyBufferRequest::contig())?;
+    write_buffer_header(&buffer, k, len)?;
+    let filter = BitLine::from_buffer(buffer);
+    filter.clear(py)?;
+    Ok(filter)
 }
 
 /// Checks that `buffer` is exactly `len` bytes, then writes the header for `k`.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import gc
 import mmap
+import pathlib
 import tempfile
 import threading
 import weakref
@@ -306,6 +307,62 @@ def buffer_matches_saved_format():
     expect_error(ValueError, lambda: Bloom.load_buffer(bytearray(8), sha_based))
 
 
+def mmap_helpers():
+    n = Bloom.buffer_size(1000, 0.01)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, 'bf.bloom')
+
+        # a path is created, and an existing file is resized to fit
+        for _ in range(2):
+            with Bloom(1000, 0.01, sha_based, mmap_file=path) as bloom:
+                assert not bloom
+                bloom.add('foo')
+            assert os.path.getsize(path) == n
+        with open(path, 'ab') as f:
+            f.write(b'\xff' * 100)
+        with Bloom(1000, 0.01, sha_based, mmap_file=path) as bloom:
+            assert not bloom
+            bloom.add('foo')
+        assert os.path.getsize(path) == n
+        assert 'foo' in Bloom.load(path, sha_based)
+
+        with Bloom.load_mmap(path, sha_based) as loaded:
+            assert not loaded.readonly
+            loaded.add('bar')
+        with Bloom.load_mmap(pathlib.Path(path), sha_based, mode='r') as loaded:
+            assert loaded.readonly
+            assert 'foo' in loaded and 'bar' in loaded
+            expect_error(BufferError, lambda: loaded.add('baz'))
+
+        # file objects are used as they are, including unflushed writes, and left open
+        Bloom(1000, 0.01, sha_based).save(path)
+        with open(path, 'r+b') as f:
+            saved = f.read()
+            with Bloom.load_mmap(f, sha_based) as loaded:
+                assert not loaded
+                loaded.add('foo')
+            assert not f.closed
+        with open(path, 'rb') as f:
+            assert f.read() != saved
+
+        with tempfile.TemporaryFile() as f:
+            f.write(b'partial')
+            with Bloom(1000, 0.01, sha_based, mmap_file=f) as bloom:
+                bloom.add('foo')
+            assert os.fstat(f.fileno()).st_size == n
+            with Bloom.load_mmap(f, sha_based, mode='r') as loaded:
+                assert 'foo' in loaded
+
+        with open(path, 'rb') as f:
+            expect_error(PermissionError, lambda: Bloom.load_mmap(f, sha_based))
+
+        expect_error(ValueError, lambda: Bloom.load_mmap(path, sha_based, mode='w'))
+        expect_error(TypeError, lambda: Bloom.load_mmap(42, sha_based))
+        expect_error(TypeError, lambda: Bloom(1000, 0.01, mmap_file=42))
+        expect_error(FileNotFoundError, lambda: Bloom.load_mmap(os.path.join(tmp, 'missing'), sha_based))
+        expect_error(TypeError, lambda: Bloom(1000, 0.01, sha_based, path))
+
+
 def buffer_circular_ref():
     class Buffer(bytearray):
         pass
@@ -366,6 +423,7 @@ def api_suite():
     operations_with_self()
     buffer_backed()
     buffer_matches_saved_format()
+    mmap_helpers()
     buffer_circular_ref()
     concurrent_access()
 

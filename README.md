@@ -137,7 +137,7 @@ class Bloom:
     # false_positive_rate:  max false positive rate of the filter
     # hash_func:  optional argument, see section "Cryptographic security"
     def __init__(self, expected_items: int, false_positive_rate: float,
-                 hash_func=__builtins__.hash)
+                 hash_func=__builtins__.hash, *, mmap_file=None)
 
     @property
     def size_in_bits(self) -> int      # number of buckets in the filter
@@ -166,6 +166,8 @@ class Bloom:
                     false_positive_rate: float, hash_func=__builtins__.hash) -> Bloom
     @classmethod
     def load_buffer(cls, buffer, hash_func) -> Bloom
+    @classmethod
+    def load_mmap(cls, file, hash_func, *, mode="rw") -> Bloom
     def release(self)                  # also via `with`
     @property
     def readonly(self) -> bool
@@ -301,6 +303,31 @@ without calling `save` at all.
 - `Bloom.load_buffer(buffer, hash_func)` uses a buffer that already holds a
   filter, such as one written by `save`, `save_bytes` or `init_buffer`. As
   with `load`, it requires the hash function the filter was created with.
+
+For the common case of a filter stored in a file, two helpers create the
+`mmap` for you. Both take either a path or a file object with a `fileno()`
+method; a path is opened and closed again, a file object is left open.
+
+- `Bloom(expected_items, false_positive_rate, hash_func, mmap_file=file)`
+  resizes the file to fit (creating a path that doesn't exist), maps it, and
+  creates an empty filter in it, like `init_buffer`.
+- `Bloom.load_mmap(file, hash_func, mode="rw")` maps a file holding a filter
+  and uses it like `load_buffer`. With `mode="r"`, the file is mapped
+  read-only.
+
+```python
+# create a filter in a new file
+with Bloom(10_000, 0.01, some_hash_func, mmap_file="bf.bloom") as bf:
+    bf.add("hello")  # written straight into bf.bloom
+
+# use a file written by save (or the one above) without loading it
+with Bloom.load_mmap("bf.bloom", some_hash_func, mode="r") as bf:
+    assert "hello" in bf
+    assert bf.readonly
+```
+
+The map is closed once the filter is released and nothing else refers to
+it. Without the helpers, the same looks like this:
 
 ```python
 import mmap
