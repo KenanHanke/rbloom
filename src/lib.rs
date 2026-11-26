@@ -8,8 +8,19 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::mem;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering::Relaxed;
 
-#[pyclass(module = "rbloom")]
+mod bitline;
+mod buffer;
+mod mapped_file;
+
+use buffer::{HeldBuffer, PyBufferRequest};
+
+/// Size of the header that precedes the bits in saved filters and in buffers: `k` as a
+/// little-endian u64.
+const HEADER_SIZE: usize = mem::size_of::<u64>();
+
+#[pyclass(module = "rbloom", frozen)]
 struct Bloom {
     filter: BitLine,
     k: u64, // Number of hash functions (implemented via a LCG that uses
@@ -17,16 +28,13 @@ struct Bloom {
     hash_func: Option<Py<PyAny>>,
 }
 
-#[pymethods]
-impl Bloom {
-    #[new]
-    #[pyo3(signature = (expected_items, false_positive_rate, hash_func = None))]
-    fn new(
-        expected_items: u64,
-        false_positive_rate: f64,
-        hash_func: Option<Bound<'_, PyAny>>,
-    ) -> PyResult<Self> {
-        // Check the inputs
+struct FilterParams {
+    size_in_bits: u64,
+    k: u64,
+}
+
+impl FilterParams {
+    fn new(expected_items: u64, false_positive_rate: f64) -> PyResult<Self> {
         if false_positive_rate <= 0.0 || false_positive_rate >= 1.0 {
             return Err(PyValueError::new_err(
                 "false_positive_rate must be between 0 and 1",
@@ -37,27 +45,74 @@ impl Bloom {
                 "expected_items must be greater than 0",
             ));
         }
-        let hash_func = match hash_func {
-            Some(hash_func) if !hash_func.is(builtin_hash_func(hash_func.py())?) => {
-                if !hash_func.is_callable() {
-                    return Err(PyTypeError::new_err("hash_func must be callable"));
-                }
-                Some(hash_func.unbind())
-            }
-            _ => None,
-        };
-
-        // Calculate the parameters for the filter
         let size_in_bits =
             -(expected_items as f64) * false_positive_rate.ln() / 2.0f64.ln().powi(2);
         let k = (size_in_bits / expected_items as f64) * 2.0f64.ln();
-
-        // Create the filter
-        Ok(Bloom {
-            filter: BitLine::new(size_in_bits as u64)?,
+        Ok(Self {
+            size_in_bits: size_in_bits as u64,
             k: k as u64,
+        })
+    }
+}
+
+#[pymethods]
+impl Bloom {
+    /// With mmap_file (a path or a file object), the filter is stored in that file, which is
+    /// resized to fit and memory-mapped, as with init_buffer. See "Buffer-backed filters" section
+    /// in the README
+    #[new]
+    #[pyo3(signature = (expected_items, false_positive_rate, hash_func = None, *, mmap_file = None))]
+    fn new(
+        expected_items: u64,
+        false_positive_rate: f64,
+        hash_func: Option<Bound<'_, PyAny>>,
+        mmap_file: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let FilterParams { size_in_bits, k } =
+            FilterParams::new(expected_items, false_positive_rate)?;
+        let hash_func = custom_hash_func(hash_func)?;
+        let filter = match mmap_file {
+            None => BitLine::new(size_in_bits)?,
+            Some(file) => {
+                let len = buffer_len(size_in_bits)?;
+                let map = mapped_file::create(&file, len)?;
+                init_buffer_filter(&map, k, len)?
+            }
+        };
+        Ok(Bloom {
+            filter,
+            k,
             hash_func,
         })
+    }
+
+    /// Create an empty filter stored in buffer, laid out exactly like a file written by save,
+    /// holding the buffer until released. See "Buffer-backed filters" section in the README
+    #[classmethod]
+    #[pyo3(signature = (buffer, expected_items, false_positive_rate, hash_func = None))]
+    fn init_buffer(
+        _cls: &Bound<'_, PyType>,
+        buffer: &Bound<'_, PyAny>,
+        expected_items: u64,
+        false_positive_rate: f64,
+        hash_func: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Bloom> {
+        let FilterParams { size_in_bits, k } =
+            FilterParams::new(expected_items, false_positive_rate)?;
+        let hash_func = custom_hash_func(hash_func)?;
+        let len = buffer_len(size_in_bits)?;
+        Ok(Bloom {
+            filter: init_buffer_filter(buffer, k, len)?,
+            k,
+            hash_func,
+        })
+    }
+
+    /// Number of bytes a buffer must have to back a filter with these parameters
+    #[staticmethod]
+    fn buffer_size(expected_items: u64, false_positive_rate: f64) -> PyResult<usize> {
+        let size_in_bits = FilterParams::new(expected_items, false_positive_rate)?.size_in_bits;
+        buffer_len(size_in_bits)
     }
 
     /// Number of buckets in the filter
@@ -77,19 +132,17 @@ impl Bloom {
 
     /// Estimated number of items in the filter
     #[getter]
-    fn approx_items(&self) -> f64 {
+    fn approx_items(&self, py: Python<'_>) -> PyResult<f64> {
         let len = self.filter.len() as f64;
-        let bits_set = self.filter.sum() as f64;
-        (len / (self.k as f64) * (1.0 - (bits_set) / len).ln()).abs()
+        let bits_set = self.filter.count_ones_sum(py)? as f64;
+        Ok((len / (self.k as f64) * (1.0 - (bits_set) / len).ln()).abs())
     }
 
     #[pyo3(signature = (o, /))]
-    fn add(&mut self, o: &Bound<'_, PyAny>) -> PyResult<()> {
+    fn add(&self, o: &Bound<'_, PyAny>) -> PyResult<()> {
         let hash = hash(o, &self.hash_func)?;
-        for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
-            self.filter.set(index);
-        }
-        Ok(())
+        let indexes = lcg::generate_indexes(hash, self.k, self.filter.len());
+        self.filter.set_all(o.py(), indexes)
     }
 
     /// Test whether every element in the bloom may be in other
@@ -100,7 +153,7 @@ impl Bloom {
     #[pyo3(signature = (other, /))]
     fn issubset(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         self.with_other_as_bloom(other, |other_bloom| {
-            Ok(self.filter.is_subset(&other_bloom.filter))
+            self.filter.is_subset(other.py(), &other_bloom.filter)
         })
     }
 
@@ -112,157 +165,138 @@ impl Bloom {
     #[pyo3(signature = (other, /))]
     fn issuperset(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         self.with_other_as_bloom(other, |other_bloom| {
-            Ok(other_bloom.filter.is_subset(&self.filter))
+            other_bloom.filter.is_subset(other.py(), &self.filter)
         })
     }
 
     fn __contains__(&self, o: &Bound<'_, PyAny>) -> PyResult<bool> {
         let hash = hash(o, &self.hash_func)?;
-        for index in lcg::generate_indexes(hash, self.k, self.filter.len()) {
-            if !self.filter.get(index) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        let indexes = lcg::generate_indexes(hash, self.k, self.filter.len());
+        self.filter.all_set(o.py(), indexes)
     }
 
     /// Return a new set with elements from the set and all others.
     #[pyo3(signature = (*others))]
     fn union<'py>(&self, others: &Bound<'py, PyTuple>) -> PyResult<Bound<'py, Self>> {
-        let result = self.clone_ref(others.py());
-        let result = Bound::new(others.py(), result)?;
-        Self::update(&result, others)?;
+        let result = Bound::new(others.py(), self.clone_ref(others.py())?)?;
+        result.get().update(others)?;
         Ok(result)
     }
 
     /// Return a new set with elements common to the set and all others.
     #[pyo3(signature = (*others))]
     fn intersection<'py>(&self, others: &Bound<'py, PyTuple>) -> PyResult<Bound<'py, Self>> {
-        let result = self.clone_ref(others.py());
-        let result = Bound::new(others.py(), result)?;
-        Self::intersection_update(&result, others)?;
+        let result = Bound::new(others.py(), self.clone_ref(others.py())?)?;
+        result.get().intersection_update(others)?;
         Ok(result)
     }
 
     fn __or__(&self, py: Python<'_>, other: &Bloom) -> PyResult<Bloom> {
         check_compatible(self, other)?;
-        Ok(Bloom {
-            filter: &self.filter | &other.filter,
-            k: self.k,
-            hash_func: self.hash_fn_clone(py),
-        })
+        let result = self.clone_ref(py)?;
+        result.filter.or_assign(py, &other.filter)?;
+        Ok(result)
     }
 
-    fn __ior__(&mut self, other: &Bloom) -> PyResult<()> {
+    fn __ior__(&self, py: Python<'_>, other: &Bloom) -> PyResult<()> {
         check_compatible(self, other)?;
-        self.filter |= &other.filter;
-        Ok(())
+        self.filter.or_assign(py, &other.filter)
     }
 
     fn __and__(&self, py: Python<'_>, other: &Bloom) -> PyResult<Bloom> {
         check_compatible(self, other)?;
-        Ok(Bloom {
-            filter: &self.filter & &other.filter,
-            k: self.k,
-            hash_func: self.hash_fn_clone(py),
-        })
+        let result = self.clone_ref(py)?;
+        result.filter.and_assign(py, &other.filter)?;
+        Ok(result)
     }
 
-    fn __iand__(&mut self, other: &Bloom) -> PyResult<()> {
+    fn __iand__(&self, py: Python<'_>, other: &Bloom) -> PyResult<()> {
         check_compatible(self, other)?;
-        self.filter &= &other.filter;
-        Ok(())
+        self.filter.and_assign(py, &other.filter)
     }
 
-    // This function has a somewhat unusual signature (taking "self" as a &Bound). This is so it can
-    // check if attempting to call `update` with itself and continue rather than failing because
-    // self cannot be both borrowed mutably for self and in others.
     #[pyo3(signature = (*others))]
-    fn update(self_bound: &Bound<'_, Self>, others: &Bound<'_, PyTuple>) -> PyResult<()> {
-        let mut self_: PyRefMut<'_, Self> = self_bound.try_borrow_mut()?;
+    fn update(&self, others: &Bound<'_, PyTuple>) -> PyResult<()> {
         for other in others.iter_borrowed() {
-            if other.is(self_bound) {
-                // OR with self is a no-op
-                continue;
-            }
             // If the other object is a Bloom, use the bitwise union
             if let Ok(other) = other.cast::<Bloom>() {
-                let other = other.try_borrow()?;
-                self_.__ior__(&other)?;
+                self.__ior__(others.py(), other.get())?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
                 for obj in other.try_iter()? {
-                    self_.add(&obj?)?;
+                    self.add(&obj?)?;
                 }
             }
         }
         Ok(())
     }
 
-    // This function has a somewhat unusual signature (taking "self" as a &Bound). This is so it can
-    // check if attempting to call `update` with itself and continue rather than failing because
-    // self cannot be both borrowed mutably for self and in others.
     #[pyo3(signature = (*others))]
-    fn intersection_update(self_bound: &Bound<'_, Self>, others: &Bound<'_, PyTuple>) -> PyResult<()> {
-        let mut self_: PyRefMut<'_, Self> = self_bound.try_borrow_mut()?;
+    fn intersection_update(&self, others: &Bound<'_, PyTuple>) -> PyResult<()> {
         // Lazily allocated temp bitset
         let mut temp: Option<Self> = None;
         for other in others.iter_borrowed() {
-            // If the other object is self, AND with self is a no-op
-            if other.is(self_bound) {
-                continue;
-            }
             // If the other object is a Bloom, use the bitwise intersection
             if let Ok(other) = other.cast::<Bloom>() {
-                let other = other.try_borrow()?;
-                self_.__iand__(&other)?;
+                self.__iand__(others.py(), other.get())?;
             }
             // Otherwise, iterate over the other object and add each item
             else {
-                let temp = temp.get_or_insert_with(|| self_.clone_ref(others.py()));
-                temp.clear();
+                let temp = match &mut temp {
+                    Some(temp) => {
+                        temp.clear(others.py())?;
+                        temp
+                    }
+                    None => temp.insert(self.zeroed_clone(others.py())),
+                };
                 for obj in other.try_iter()? {
                     temp.add(&obj?)?;
                 }
-                self_.__iand__(temp)?;
+                self.__iand__(others.py(), temp)?;
             }
         }
         Ok(())
     }
 
-    fn clear(&mut self) {
-        self.filter.clear();
+    fn clear(&self, py: Python<'_>) -> PyResult<()> {
+        self.filter.clear(py)
     }
 
-    fn copy(&self, py: Python<'_>) -> Bloom {
+    fn copy(&self, py: Python<'_>) -> PyResult<Bloom> {
         self.clone_ref(py)
     }
 
-    fn __repr__(&self) -> String {
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         // Use a format that makes it clear that the object
         // cannot be reconstructed from the repr
-        format!(
+        if self.filter.is_released(py) {
+            return Ok(format!(
+                "<Bloom size_in_bits={} released>",
+                self.size_in_bits()
+            ));
+        }
+        Ok(format!(
             "<Bloom size_in_bits={} approx_items={:.1}>",
             self.size_in_bits(),
-            self.approx_items()
-        )
+            self.approx_items(py)?
+        ))
     }
 
-    fn __bool__(&self) -> bool {
-        !self.filter.is_empty()
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        Ok(!self.filter.is_empty(py)?)
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+    fn __richcmp__(&self, py: Python<'_>, other: &Self, op: CompareOp) -> PyResult<bool> {
         check_compatible(self, other)?;
-        Ok(match op {
-            CompareOp::Eq => self.filter == other.filter,
-            CompareOp::Ne => self.filter != other.filter,
-            CompareOp::Le => self.filter.is_subset(&other.filter),
-            CompareOp::Lt => self.filter.is_strict_subset(&other.filter),
-            CompareOp::Ge => other.filter.is_subset(&self.filter),
-            CompareOp::Gt => other.filter.is_strict_subset(&self.filter),
-        })
+        match op {
+            CompareOp::Eq => self.filter.equals(py, &other.filter),
+            CompareOp::Ne => Ok(!self.filter.equals(py, &other.filter)?),
+            CompareOp::Le => self.filter.is_subset(py, &other.filter),
+            CompareOp::Lt => self.filter.is_strict_subset(py, &other.filter),
+            CompareOp::Ge => other.filter.is_subset(py, &self.filter),
+            CompareOp::Gt => other.filter.is_strict_subset(py, &self.filter),
+        }
     }
 
     #[classattr]
@@ -275,21 +309,11 @@ impl Bloom {
         filepath: PathBuf,
         hash_func: &Bound<'_, PyAny>,
     ) -> PyResult<Bloom> {
-        // check that the hash_func is callable
-        if !hash_func.is_callable() {
-            return Err(PyTypeError::new_err("hash_func must be callable"));
-        }
-        // check that the hash_func isn't the built-in hash function
-        if hash_func.is(builtin_hash_func(hash_func.py())?) {
-            return Err(PyValueError::new_err(
-                "Cannot load a bloom filter that uses the built-in hash function",
-            ));
-        }
-        let hash_func = Some(hash_func.clone().unbind());
+        let hash_func = Some(loadable_hash_func(hash_func)?);
 
         let mut file = File::open(filepath)?;
 
-        let mut k_bytes = [0; mem::size_of::<u64>()];
+        let mut k_bytes = [0; HEADER_SIZE];
         file.read_exact(&mut k_bytes)?;
         let k = u64::from_le_bytes(k_bytes);
 
@@ -309,24 +333,17 @@ impl Bloom {
         bytes: &[u8],
         hash_func: &Bound<'_, PyAny>,
     ) -> PyResult<Bloom> {
-        // check that the hash_func is callable
-        if !hash_func.is_callable() {
-            return Err(PyTypeError::new_err("hash_func must be callable"));
-        }
-        // check that the hash_func isn't the built-in hash function
-        if hash_func.is(builtin_hash_func(hash_func.py())?) {
-            return Err(PyValueError::new_err(
-                "Cannot load a bloom filter that uses the built-in hash function",
-            ));
-        }
-        let hash_func = Some(hash_func.clone().unbind());
+        let hash_func = Some(loadable_hash_func(hash_func)?);
 
-        let k_bytes: [u8; mem::size_of::<u64>()] = bytes[0..mem::size_of::<u64>()]
-            .try_into()
-            .expect("slice with incorrect length");
-        let k = u64::from_le_bytes(k_bytes);
+        let (k_bytes, rest) = bytes.split_first_chunk::<HEADER_SIZE>().ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "buffer of {} bytes is too small to hold a saved filter",
+                bytes.len()
+            ))
+        })?;
+        let k = u64::from_le_bytes(*k_bytes);
 
-        let filter = BitLine::load_bytes(&bytes[mem::size_of::<u64>()..])?;
+        let filter = BitLine::load_bytes(rest)?;
 
         Ok(Bloom {
             filter,
@@ -335,8 +352,64 @@ impl Bloom {
         })
     }
 
+    /// Use a buffer laid out like a file written by save (e.g. an mmap of one) as the filter's
+    /// storage, holding it until released. A filter in a read-only buffer can only be read. See
+    /// "Buffer-backed filters" section in the README
+    #[classmethod]
+    fn load_buffer(
+        _cls: &Bound<'_, PyType>,
+        buffer: Bound<'_, PyAny>,
+        hash_func: &Bound<'_, PyAny>,
+    ) -> PyResult<Bloom> {
+        let hash_func = Some(loadable_hash_func(hash_func)?);
+        let buffer = HeldBuffer::get(&buffer, PyBufferRequest::contig_ro())?;
+        let k = read_buffer_header(&buffer)?;
+        Ok(Bloom {
+            filter: BitLine::from_buffer(buffer),
+            k,
+            hash_func,
+        })
+    }
+
+    /// Memory-map a file (a path or a file object) holding a saved filter and use it with
+    /// load_buffer. With mode="r" the file is mapped read-only, so the filter can only be read.
+    /// See "Buffer-backed filters" section in the README
+    #[classmethod]
+    #[pyo3(signature = (file, hash_func, *, mode = "rw"))]
+    fn load_mmap(
+        cls: &Bound<'_, PyType>,
+        file: &Bound<'_, PyAny>,
+        hash_func: &Bound<'_, PyAny>,
+        mode: &str,
+    ) -> PyResult<Bloom> {
+        let access = mapped_file::Access::from_mode(mode)?;
+        let map = mapped_file::open(file, access)?;
+        Self::load_buffer(cls, map, hash_func)
+    }
+
+    /// Release the buffer a buffer-backed filter is stored in, like memoryview.release(); any
+    /// later use of the filter raises ValueError. Does nothing for other filters.
+    fn release(&self, py: Python<'_>) {
+        self.filter.release(py);
+    }
+
+    fn __enter__(slf: Bound<'_, Self>) -> Bound<'_, Self> {
+        slf
+    }
+
+    #[pyo3(signature = (*_args))]
+    fn __exit__(&self, py: Python<'_>, _args: &Bound<'_, PyTuple>) {
+        self.release(py);
+    }
+
+    /// Whether the filter is stored in a read-only buffer
+    #[getter]
+    fn readonly(&self, py: Python<'_>) -> PyResult<bool> {
+        self.filter.readonly(py)
+    }
+
     /// Save to a file, see "Persistence" section in the README
-    fn save(&self, filepath: PathBuf) -> PyResult<()> {
+    fn save(&self, py: Python<'_>, filepath: PathBuf) -> PyResult<()> {
         if self.hash_func.is_none() {
             return Err(PyValueError::new_err(
                 "Cannot save a bloom filter that uses the built-in hash function",
@@ -344,30 +417,28 @@ impl Bloom {
         }
         let mut file = File::create(filepath)?;
         file.write_all(&self.k.to_le_bytes())?;
-        self.filter.save(&mut file)?;
+        self.filter.save(py, &mut file)?;
         Ok(())
     }
 
     /// Save to a byte(), see "Persistence" section in the README
     fn save_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        const K_SIZE: usize = mem::size_of::<u64>();
         if self.hash_func.is_none() {
             return Err(PyValueError::new_err(
                 "Cannot save a bloom filter that uses the built-in hash function",
             ));
         }
 
-        debug_assert_eq!(K_SIZE, self.k.to_le_bytes().len());
-        let len = K_SIZE + self.filter.bits().len();
+        let len = HEADER_SIZE + self.filter.len_bytes();
         PyBytes::new_with(py, len, |data| {
-            data[..K_SIZE].copy_from_slice(&self.k.to_le_bytes());
-            data[K_SIZE..].copy_from_slice(self.filter.bits());
-            Ok(())
+            data[..HEADER_SIZE].copy_from_slice(&self.k.to_le_bytes());
+            self.filter.copy_into(py, &mut data[HEADER_SIZE..])
         })
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.hash_func)?;
+        self.filter.traverse(&visit)?;
         Ok(())
     }
 }
@@ -378,17 +449,18 @@ impl Bloom {
         self.hash_func.as_ref().map(|f| f.clone_ref(py))
     }
 
-    fn clone_ref(&self, py: Python<'_>) -> Self {
-        Bloom {
-            filter: self.filter.clone(),
+    /// Returns a copy that owns its bits, even if self is backed by a buffer.
+    fn clone_ref(&self, py: Python<'_>) -> PyResult<Self> {
+        Ok(Bloom {
+            filter: self.filter.to_owned(py)?,
             k: self.k,
             hash_func: self.hash_fn_clone(py),
-        }
+        })
     }
 
     fn zeroed_clone(&self, py: Python<'_>) -> Bloom {
         Bloom {
-            filter: BitLine::new(self.filter.len()).unwrap(),
+            filter: self.filter.zeroed_like(),
             k: self.k,
             hash_func: self.hash_fn_clone(py),
         }
@@ -402,199 +474,16 @@ impl Bloom {
     ) -> PyResult<O> {
         match other.cast::<Bloom>() {
             Ok(o) => {
-                let o = o.try_borrow()?;
-                check_compatible(self, &o)?;
-                f(&o)
+                let o = o.get();
+                check_compatible(self, o)?;
+                f(o)
             }
             Err(_) => {
-                let mut other_bloom = self.zeroed_clone(other.py());
+                let other_bloom = self.zeroed_clone(other.py());
                 for obj in other.try_iter()? {
                     other_bloom.add(&obj?)?;
                 }
                 f(&other_bloom)
-            }
-        }
-    }
-}
-
-/// This is a primitive BitVec-like structure that uses a `Box<[u8]>` as
-/// the backing store; it exists here to avoid the need for a dependency
-/// on bitvec and to act as a container around all the bit manipulation.
-/// Indexing is done using u64 to avoid address space issues on 32-bit
-/// systems, which would otherwise limit the size to 2^32 bits (512MB).
-/// Using u8 for the backing store simplifies file I/O as well as file
-/// portability across systems, and the performance is equivalent to
-/// using usize, even though the latter is arguably more elegant.
-mod bitline {
-    use pyo3::exceptions::PyValueError;
-    use pyo3::prelude::*;
-    use std::fs::File;
-    use std::io::{Read, Write};
-
-    #[inline(always)]
-    fn bit_idx(idx: u64) -> Option<(usize, u32)> {
-        let (q, r) = (idx / 8, idx % 8);
-        Some((q.try_into().ok()?, r.try_into().ok()?))
-    }
-
-    #[derive(Clone, PartialEq, Eq)]
-    pub struct BitLine {
-        bits: Box<[u8]>,
-    }
-
-    impl BitLine {
-        pub fn new(size_in_bits: u64) -> PyResult<Self> {
-            match bit_idx(size_in_bits) {
-                Some((q, r)) => {
-                    let size = if r == 0 { q } else { q + 1 };
-                    Ok(Self {
-                        bits: vec![0; size].into_boxed_slice(),
-                    })
-                }
-                None => Err(PyValueError::new_err("too many bits")),
-            }
-        }
-
-        /// Make sure that index is less than len when calling this!
-        pub fn set(&mut self, index: u64) {
-            let (idx, offset) = bit_idx(index).unwrap();
-            self.bits[idx] |= 1 << offset;
-        }
-
-        /// Make sure that index is less than len when calling this!
-        pub fn get(&self, index: u64) -> bool {
-            let (idx, offset) = bit_idx(index).unwrap();
-            self.bits[idx] & (1 << offset) != 0
-        }
-
-        /// Returns the number of bits in the BitLine
-        pub fn len(&self) -> u64 {
-            self.bits.len() as u64 * 8
-        }
-
-        pub fn clear(&mut self) {
-            self.bits.fill(0);
-        }
-
-        pub fn sum(&self) -> u64 {
-            self.bits.iter().map(|x| x.count_ones() as u64).sum()
-        }
-
-        pub fn is_empty(&self) -> bool {
-            self.bits.iter().all(|&word| word == 0)
-        }
-
-        pub fn is_subset(&self, other: &BitLine) -> bool {
-            all_pairs(self, other, |lhs, rhs| (lhs | rhs) == rhs)
-        }
-
-        pub fn is_strict_subset(&self, other: &BitLine) -> bool {
-            let mut is_equal = true;
-            let is_subset = all_pairs(self, other, |lhs, rhs| {
-                is_equal &= lhs == rhs;
-                (lhs | rhs) == rhs
-            });
-            is_subset && !is_equal
-        }
-
-        /// Reads the given file from the current position to the end and
-        /// returns a BitLine containing the data.
-        pub fn load(file: &mut File) -> PyResult<Self> {
-            let mut bits = Vec::new();
-            file.read_to_end(&mut bits)?;
-            Ok(Self {
-                bits: bits.into_boxed_slice(),
-            })
-        }
-
-        /// Given the provided [u8]
-        /// returns a BitLine containing the data.
-        pub fn load_bytes(bytes: &[u8]) -> PyResult<Self> {
-            let bits = bytes.to_vec();
-            Ok(Self {
-                bits: bits.into_boxed_slice(),
-            })
-        }
-
-        /// Writes the BitLine to the given file from the current position.
-        pub fn save(&self, file: &mut File) -> PyResult<()> {
-            file.write_all(&self.bits)?;
-            Ok(())
-        }
-
-        pub fn bits(&self) -> &[u8] {
-            &self.bits
-        }
-    }
-
-    fn all_pairs(lhs: &BitLine, rhs: &BitLine, mut f: impl FnMut(u8, u8) -> bool) -> bool {
-        lhs.bits
-            .iter()
-            .zip(rhs.bits.iter())
-            .all(move |(&lhs, &rhs)| f(lhs, rhs))
-    }
-
-    impl std::ops::BitAnd for BitLine {
-        type Output = Self;
-
-        fn bitand(mut self, rhs: Self) -> Self::Output {
-            self &= rhs;
-            self
-        }
-    }
-
-    impl std::ops::BitAnd for &BitLine {
-        type Output = BitLine;
-
-        fn bitand(self, rhs: Self) -> Self::Output {
-            let mut result = self.clone();
-            result &= rhs;
-            result
-        }
-    }
-
-    impl std::ops::BitAndAssign for BitLine {
-        fn bitand_assign(&mut self, rhs: Self) {
-            *self &= &rhs;
-        }
-    }
-    impl std::ops::BitAndAssign<&BitLine> for BitLine {
-        fn bitand_assign(&mut self, rhs: &Self) {
-            for (lhs, rhs) in self.bits.iter_mut().zip(rhs.bits.iter()) {
-                *lhs &= rhs;
-            }
-        }
-    }
-
-    impl std::ops::BitOr for BitLine {
-        type Output = Self;
-
-        fn bitor(mut self, rhs: Self) -> Self::Output {
-            self |= rhs;
-            self
-        }
-    }
-
-    impl std::ops::BitOr for &BitLine {
-        type Output = BitLine;
-
-        fn bitor(self, rhs: Self) -> Self::Output {
-            let mut result = self.clone();
-            result |= rhs;
-            result
-        }
-    }
-
-    impl std::ops::BitOrAssign for BitLine {
-        fn bitor_assign(&mut self, rhs: Self) {
-            *self |= &rhs;
-        }
-    }
-
-    impl std::ops::BitOrAssign<&BitLine> for BitLine {
-        fn bitor_assign(&mut self, rhs: &Self) {
-            for (lhs, rhs) in self.bits.iter_mut().zip(rhs.bits.iter()) {
-                *lhs |= rhs;
             }
         }
     }
@@ -641,6 +530,76 @@ fn hash(o: &Bound<'_, PyAny>, hash_func: &Option<Py<PyAny>>) -> PyResult<i128> {
         }
         None => Ok(o.hash()? as i128),
     }
+}
+
+/// Checks that a hash function can be used to load a saved filter.
+fn loadable_hash_func(hash_func: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    if !hash_func.is_callable() {
+        return Err(PyTypeError::new_err("hash_func must be callable"));
+    }
+    if hash_func.is(builtin_hash_func(hash_func.py())?) {
+        return Err(PyValueError::new_err(
+            "Cannot load a bloom filter that uses the built-in hash function",
+        ));
+    }
+    Ok(hash_func.clone().unbind())
+}
+
+/// Returns the hash function to store for a new filter: `None` for the built-in hash.
+fn custom_hash_func(hash_func: Option<Bound<'_, PyAny>>) -> PyResult<Option<Py<PyAny>>> {
+    match hash_func {
+        Some(hash_func) if !hash_func.is(builtin_hash_func(hash_func.py())?) => {
+            if !hash_func.is_callable() {
+                return Err(PyTypeError::new_err("hash_func must be callable"));
+            }
+            Ok(Some(hash_func.unbind()))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Returns the number of bytes a buffer needs for the header and `size_in_bits` bits.
+fn buffer_len(size_in_bits: u64) -> PyResult<usize> {
+    Ok(HEADER_SIZE + bitline::byte_len(size_in_bits)?)
+}
+
+/// Creates an empty filter with `k` hash functions in `buffer`, which must be exactly `len` bytes.
+fn init_buffer_filter(buffer: &Bound<'_, PyAny>, k: u64, len: usize) -> PyResult<BitLine> {
+    let py = buffer.py();
+    let buffer = HeldBuffer::get(buffer, PyBufferRequest::contig())?;
+    write_buffer_header(&buffer, k, len)?;
+    let filter = BitLine::from_buffer(buffer);
+    filter.clear(py)?;
+    Ok(filter)
+}
+
+/// Checks that `buffer` is exactly `len` bytes, then writes the header for `k`.
+fn write_buffer_header(buffer: &HeldBuffer, k: u64, len: usize) -> PyResult<()> {
+    let bytes = buffer.writable_bytes()?;
+    if bytes.len() != len {
+        return Err(PyValueError::new_err(format!(
+            "buffer must be exactly {len} bytes for this filter, got {}",
+            bytes.len()
+        )));
+    }
+    for (byte, value) in bytes.iter().zip(k.to_le_bytes()) {
+        byte.store(value, Relaxed);
+    }
+    Ok(())
+}
+
+/// Checks that `buffer` can hold a saved filter, and returns the `k` in its header.
+fn read_buffer_header(buffer: &HeldBuffer) -> PyResult<u64> {
+    let bytes = buffer.readable_bytes();
+    if bytes.len() <= HEADER_SIZE {
+        return Err(PyValueError::new_err(format!(
+            "buffer of {} bytes is too small to hold a saved filter",
+            bytes.len()
+        )));
+    }
+    let mut k = [0; HEADER_SIZE];
+    bitline::copy_bytes(&bytes[..HEADER_SIZE], &mut k);
+    Ok(u64::from_le_bytes(k))
 }
 
 fn check_compatible(a: &Bloom, b: &Bloom) -> PyResult<()> {
